@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>E2EE Node PoC (SSE)</title>
+    <style>
+      :root { color-scheme: light dark; --bg:#0b0c10; --fg:#eaf0f2; --mid:#2b2f36; --acc:#4aa3ff; }
+      body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial; }
+      header { padding: 14px 18px; background: var(--mid); color: var(--fg); font-weight: 600; }
+      main { padding: 16px; display:flex; gap: 16px; align-items: flex-start; }
+      .pane { flex: 1; border: 1px solid var(--mid); border-radius: 8px; padding: 12px; }
+      .row { display:flex; gap:8px; align-items:center; margin-bottom: 8px; }
+      input, button { padding: 8px 12px; border-radius: 6px; border: 1px solid var(--mid); background: transparent; color: inherit; }
+      input[type=text] { flex: 1; }
+      button { background: var(--mid); color: var(--fg); cursor: pointer; }
+      button:disabled { opacity:.6; cursor: not-allowed; }
+      .msgs { min-height: 260px; border:1px dashed var(--mid); border-radius:6px; padding:8px; overflow:auto; background: rgba(0,0,0,0.03); }
+      .msg { margin-bottom:6px; }
+      .from { font-weight:600; margin-right:6px; color:var(--acc); }
+      .status { font-size: 12px; opacity:.8; margin-bottom:6px; }
+      details { margin-top: 10px; }
+      pre { background: rgba(0,0,0,0.05); padding:8px; border-radius:6px; overflow:auto; }
+    </style>
+  </head>
+  <body>
+    <header>E2EE — Node.js + SSE (PoC)</header>
+    <main>
+      <section class="pane">
+        <div class="row">
+          <label>Room ID:</label>
+          <input id="room" type="text" placeholder="ex: demo-room" value="demo-room" />
+        </div>
+        <div class="row">
+          <label>Username:</label>
+          <input id="user" type="text" placeholder="ex: Alice" value="Alice" />
+        </div>
+        <div class="row">
+          <label>Peer:</label>
+          <input id="peer" type="text" placeholder="ex: Bob" value="Bob" />
+        </div>
+        <div class="row">
+          <button id="connect">Connect</button>
+          <div class="status" id="status">Déconnecté</div>
+        </div>
+
+        <div class="msgs" id="log"></div>
+        <div class="row">
+          <input id="input" type="text" placeholder="Votre message" disabled />
+          <button id="send" disabled>Envoyer</button>
+        </div>
+
+        <details>
+          <summary>Infos debug</summary>
+          <pre id="debug"></pre>
+        </details>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+  </html>
+
