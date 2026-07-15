@@ -11,7 +11,10 @@
         --mid: #162326;   /* couleur intermédiaire */
         --acc: #97b1aa;   /* accent */
         --lnclr: #cdccb2;
+        --pane-bg: #2a3536; /* remplace l'ancien var(#ff0000) invalide, teinte proche du reste du thème */
       }
+
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -33,16 +36,26 @@
       display: flex;
       gap: 16px;
       align-items: flex-start;
+      flex-wrap: wrap;
+    }
+
+    .slctppl {
+      flex: 1 1 220px;
+      min-width: 200px;
+      min-height: 300px;
+      border: 1px solid var(--lnclr);
+      border-radius: 3px;
+      padding: 12px;
+      background-color: var(--pane-bg);
+      color: var(--fg);
     }
 
     .pane {
-      flex: 1;
+      flex: 3 1 480px;
+      min-width: 280px;
       border-radius: 3px;
       padding: 12px;
-      position: absolute;
-      left: 200px;
-      right: 12px;
-      background-color: var(#ff0000);
+      background-color: var(--pane-bg);
       color: var(--fg);
     }
 
@@ -53,6 +66,12 @@
       border-radius: 3px;
       align-items: center;
       margin-bottom: 8px;
+      flex-wrap: wrap;
+      padding: 6px;
+    }
+
+    .row label {
+      white-space: nowrap;
     }
 
     input, button {
@@ -63,13 +82,17 @@
       color: inherit;
     }
 
-    input[type=text] { flex: 1; }
+    input[type=text] {
+      flex: 1;
+      min-width: 120px;
+    }
 
     button {
       background: var(--mid);
       color: var(--fg);
       cursor: pointer;
       border-color: var(--mid);
+      white-space: nowrap;
     }
 
     button:disabled {
@@ -78,34 +101,73 @@
     }
 
     .msgs {
-      min-height: 455px;
-      max-height: 455px;
+      min-height: 300px;
+      max-height: 60vh;
       border:1px solid var(--lnclr);
       border-radius:3px;
       padding:8px;
       overflow:auto;
       background-color: var(--mid);
     }
-    
-    .slctppl {
-      flex: 1;
-      min-height: 650px;
-      border: 1px solid var(--lnclr);
-      border-radius: 3px;
-      padding: 12px;
-      position: absolute;
-      top : 80px;
-      left: 12px;
-      right: 670px;
-      background-color: var(#ff0000);
-      color: var(--fg);
-    }
 
-    .msg { margin-bottom:6px; }
+    .msg { margin-bottom:6px; word-break: break-word; }
     .from { font-weight:600; margin-right:6px; color:var(--acc); }
     .status { font-size: 12px; opacity:0.8; margin-bottom:6px; }
     details { margin-top: 10px; }
-    pre { background: rgb(0, 29, 126); padding:8px; border-radius:6px; overflow:auto; }
+    pre { background: rgb(0, 29, 126); padding:8px; border-radius:6px; overflow:auto; white-space: pre-wrap; word-break: break-word; }
+
+    #version {
+      position: fixed;
+      bottom: 10px;
+      width: 100%;
+      text-align: left;
+      font-size: 14px;
+      color: gray;
+      padding-left: 16px;
+    }
+
+    /* --- Responsive breakpoints --- */
+
+    @media (max-width: 900px) {
+      main {
+        flex-direction: column;
+      }
+      .slctppl,
+      .pane {
+        flex: 1 1 auto;
+        width: 100%;
+        min-height: auto;
+      }
+      .msgs {
+        max-height: 50vh;
+      }
+    }
+
+    @media (max-width: 480px) {
+      header {
+        font-size: 14px;
+        padding: 10px 12px;
+      }
+      main {
+        padding: 10px;
+        gap: 10px;
+      }
+      .row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .row label {
+        margin-bottom: 4px;
+      }
+      input, button {
+        width: 100%;
+      }
+      .row#connect-row,
+      .row:has(#connect) {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+    }
   </style>
 </head>
 <body>
@@ -148,7 +210,7 @@
   </main>
 
   <!-- Footer version -->
-  <div id="version" style="position: fixed; bottom: 10px; width: 100%; text-align: left; font-size: 14px; color: gray;">
+  <div id="version">
     Version : chargement...
   </div>
 
