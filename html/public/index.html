@@ -6,23 +6,20 @@
   <title>kr1pt3d - PREVIEW -DEV</title>
   <style>
     :root {
-        --bg: #545e60;    /* fond mode clair */
-        --fg: #ebe6ca;    /* texte */
-        --mid: #162326;   /* couleur intermédiaire */
-        --acc: #97b1aa;   /* accent */
+        --bg: #545e60;
+        --fg: #ebe6ca;
+        --mid: #162326;
+        --acc: #97b1aa;
         --lnclr: #cdccb2;
-        --pane-bg: #2a3536; /* remplace l'ancien var(#ff0000) invalide, teinte proche du reste du thème */
+        --pane-bg: #2a3536;
       }
-
     * { box-sizing: border-box; }
-
     body {
       margin: 0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
       background-color: var(--bg);
       color: var(--fg);
     }
-
     header {
       padding: 14px 18px;
       background: var(--mid);
@@ -30,7 +27,6 @@
       color: var(--fg);
       font-weight: 600;
     }
-
     main {
       padding: 16px;
       display: flex;
@@ -38,7 +34,6 @@
       align-items: flex-start;
       flex-wrap: wrap;
     }
-
     .slctppl {
       flex: 1 1 220px;
       min-width: 200px;
@@ -49,7 +44,6 @@
       background-color: var(--pane-bg);
       color: var(--fg);
     }
-
     .pane {
       flex: 3 1 480px;
       min-width: 280px;
@@ -58,7 +52,6 @@
       background-color: var(--pane-bg);
       color: var(--fg);
     }
-
     .row {
       display: flex;
       gap: 8px;
@@ -69,11 +62,9 @@
       flex-wrap: wrap;
       padding: 6px;
     }
-
     .row label {
       white-space: nowrap;
     }
-
     input, button {
       padding: 8px 12px;
       border-radius: 3px;
@@ -81,12 +72,10 @@
       background: transparent;
       color: inherit;
     }
-
     input[type=text] {
       flex: 1;
       min-width: 120px;
     }
-
     button {
       background: var(--mid);
       color: var(--fg);
@@ -94,12 +83,10 @@
       border-color: var(--mid);
       white-space: nowrap;
     }
-
     button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
-
     .msgs {
       min-height: 300px;
       max-height: 60vh;
@@ -109,13 +96,11 @@
       overflow:auto;
       background-color: var(--mid);
     }
-
     .msg { margin-bottom:6px; word-break: break-word; }
     .from { font-weight:600; margin-right:6px; color:var(--acc); }
     .status { font-size: 12px; opacity:0.8; margin-bottom:6px; }
     details { margin-top: 10px; }
     pre { background: rgb(0, 29, 126); padding:8px; border-radius:6px; overflow:auto; white-space: pre-wrap; word-break: break-word; }
-
     #version {
       position: fixed;
       bottom: 10px;
@@ -125,9 +110,6 @@
       color: gray;
       padding-left: 16px;
     }
-
-    /* --- Responsive breakpoints --- */
-
     @media (max-width: 900px) {
       main {
         flex-direction: column;
@@ -142,7 +124,6 @@
         max-height: 50vh;
       }
     }
-
     @media (max-width: 480px) {
       header {
         font-size: 14px;
@@ -177,8 +158,115 @@
     <strong>Other chats</strong>
     <div style="margin-top:10px; opacity:.7;">(will be add soon I hope)</div>
     </section>
-
     <section class="pane">
+      <div class="row">
+        <label>Room ID:</label>
+        <input id="room" type="text" placeholder="ex: demo-room" value="demo-room" />
+      </div><!doctype html>
+  <html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kr1pt3d - PREVIEW -DEV</title>
+  <style>
+    :root {
+        --bg: #545e60;    /* fond mode clair */
+        --fg: #ebe6ca;    /* texte */
+        --mid: #162326;   /* couleur intermédiaire */
+        --acc: #97b1aa;   /* accent */
+        --lnclr: #cdccb2;
+      }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial;
+      background-color: var(--bg);
+      color: var(--fg);
+    }
+    header {
+      padding: 14px 18px;
+      background: var(--mid);
+      border:1px solid var(--lnclr);
+      color: var(--fg);
+      font-weight: 600;
+    }
+    main {
+      padding: 16px;
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+    }
+    .pane {
+      flex: 1;
+      border-radius: 3px;
+      padding: 12px;
+      position: absolute;
+      left: 200px;
+      right: 12px;
+      background-color: var(#ff0000);
+      color: var(--fg);
+    }
+    .row {
+      display: flex;
+      gap: 8px;
+      border:1px solid var(--lnclr);
+      border-radius: 3px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    input, button {
+      padding: 8px 12px;
+      border-radius: 3px;
+      border: 1px solid var(--mid);
+      background: transparent;
+      color: inherit;
+    }
+    input[type=text] { flex: 1; }
+    button {
+      background: var(--mid);
+      color: var(--fg);
+      cursor: pointer;
+      border-color: var(--mid);
+    }
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .msgs {
+      min-height: 455px;
+      max-height: 455px;
+      border:1px solid var(--lnclr);
+      border-radius:3px;
+      padding:8px;
+      overflow:auto;
+      background-color: var(--mid);
+    }
+    .slctppl {
+      flex: 1;
+      min-height: 650px;
+      border: 1px solid var(--lnclr);
+      border-radius: 3px;
+      padding: 12px;
+      position: absolute;
+      top : 80px;
+      left: 12px;
+      right: 670px;
+      background-color: var(#ff0000);
+      color: var(--fg);
+    }
+    .msg { margin-bottom:6px; }
+    .from { font-weight:600; margin-right:6px; color:var(--acc); }
+    .status { font-size: 12px; opacity:0.8; margin-bottom:6px; }
+    details { margin-top: 10px; }
+    pre { background: rgb(0, 29, 126); padding:8px; border-radius:6px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <header id="header-title">kr1pt3d - private secure chat</header>
+  <main>
+    <section class="slctppl">
+    <strong>Other chats</strong>
+    <div style="margin-top:10px; opacity:.7;">(will be add soon I hope)</div>
+    </section>
       <div class="row">
         <label>Room ID:</label>
         <input id="room" type="text" placeholder="ex: demo-room" value="demo-room" />
@@ -195,25 +283,63 @@
         <button id="connect">Connect</button>
         <div class="status" id="status">Offline</div>
       </div>
-
       <div class="msgs" id="log"></div>
       <div class="row">
         <input id="input" type="text" placeholder="Votre message" disabled />
         <button id="send" disabled>Send</button>
       </div>
-
       <details>
         <summary>Infos debug</summary>
         <pre id="debug"></pre>
       </details>
     </section>
   </main>
-
-  <!-- Footer version -->
+  <div id="version" style="position: fixed; bottom: 10px; width: 100%; text-align: left; font-size: 14px; color: gray;">
+    Version : loading...
+  </div>
+  <script src="app.js"></script>
+  <script>
+    fetch("version.txt")
+      .then(response => response.text())
+      .then(data => {
+        let versionTxt = data.trim();
+        document.getElementById("version").innerText = "Version : " + versionTxt;
+        document.getElementById("header-title").innerText =
+          "kr1pt3d - private secure chat - v" + versionTxt;
+      })
+      .catch(error => {
+        document.getElementById("version").innerText = "Version : read error";
+        console.error("Reading error :", error);
+      });
+  </script>
+</body>
+</html>
+      <div class="row">
+        <label>Username:</label>
+        <input id="user" type="text" placeholder="Please chose a username (it's your personal id too)" value="" />
+      </div>
+      <div class="row">
+        <label>Peer:</label>
+        <input id="peer" type="text" placeholder="Enter your friend's id" value="" />
+      </div>
+      <div class="row">
+        <button id="connect">Connect</button>
+        <div class="status" id="status">Offline</div>
+      </div>
+      <div class="msgs" id="log"></div>
+      <div class="row">
+        <input id="input" type="text" placeholder="Your message" disabled />
+        <button id="send" disabled>Send</button>
+      </div>
+      <details>
+        <summary>Infos debug</summary>
+        <pre id="debug"></pre>
+      </details>
+    </section>
+  </main>
   <div id="version">
     Version : chargement...
   </div>
-
   <script src="app.js"></script>
   <script>
     fetch("version.txt")
