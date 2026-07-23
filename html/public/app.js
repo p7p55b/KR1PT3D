@@ -1,200 +1,365 @@
-// Browser client for Node SSE E2EE relay
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kr1pt3d-unstable</title>
 
-const te = new TextEncoder();
-const td = new TextDecoder();
-
-function toB64(bytes) {
-  let bin = '';
-  const arr = new Uint8Array(bytes);
-  for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
-  return btoa(bin);
-}
-function fromB64(b64) {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out.buffer;
-}
-function randBytes(n) {
-  const b = new Uint8Array(n);
-  crypto.getRandomValues(b);
-  return b;
+<style>
+:root {
+    --bg: #545e60;
+    --fg: #ebe6ca;
+    --mid: #162326;
+    --acc: #97b1aa;
+    --lnclr: #cdccb2;
+    --pane-bg: #2a3536;
 }
 
-class Client {
-  constructor() {
-    this.room = null;
-    this.user = null;
-    this.peer = null;
-    this.keys = null; // { publicKey, privateKey }
-    this.shared = null; // AES-GCM key
-    this.es = null; // EventSource
-    this.server = location.origin; // same host
+* {
+    box-sizing: border-box;
+}
 
-    this.ui = this.bindUI();
-  }
+body {
+    margin: 0;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif;
+    background-color: var(--bg);
+    color: var(--fg);
+}
 
-  bindUI() {
-    const ui = {
-      room: document.getElementById('room'),
-      user: document.getElementById('user'),
-      peer: document.getElementById('peer'),
-      connect: document.getElementById('connect'),
-      status: document.getElementById('status'),
-      debug: document.getElementById('debug'),
-      log: document.getElementById('log'),
-      input: document.getElementById('input'),
-      send: document.getElementById('send'),
-    };
-    ui.connect.addEventListener('click', () => this.connect());
-    ui.send.addEventListener('click', () => this.onSend());
-    ui.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') this.onSend();
-    });
-    return ui;
-  }
+header {
+    padding: 14px 18px;
+    background: var(--mid);
+    border: 1px solid var(--lnclr);
+    color: var(--fg);
+    font-weight: 600;
+}
 
-  setStatus(s) {
-    this.ui.status.textContent = s;
-  }
+main {
+    padding: 16px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
 
-  logMsg(from, text) {
-    const el = document.createElement('div');
-    el.className = 'msg';
-    el.innerHTML = `<span class="from">${from}:</span>${text}`;
-    this.ui.log.appendChild(el);
-    this.ui.log.scrollTop = this.ui.log.scrollHeight;
-  }
+.slctppl {
+    flex: 1 1 220px;
+    min-width: 200px;
+    min-height: 300px;
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    padding: 12px;
+    background-color: var(--pane-bg);
+}
 
-  debug(obj) {
-    this.ui.debug.textContent = JSON.stringify(obj, null, 2);
-  }
+.pane {
+    flex: 3 1 480px;
+    min-width: 280px;
+    border-radius: 3px;
+    padding: 12px;
+    background-color: var(--pane-bg);
+    color: var(--fg);
 
-  async connect() {
-    try {
-      if (!window.isSecureContext) {
-        console.warn('Web Crypto recommande un contexte sécurisé; localhost est OK.');
-      }
-      if (!crypto?.subtle) throw new Error('crypto.subtle non disponible');
+    display: flex;
+    flex-direction: column;
+    height: 80vh;
+}
 
-      this.room = this.ui.room.value.trim() || 'demo-room';
-      this.user = this.ui.user.value.trim();
-      this.peer = this.ui.peer.value.trim();
-      if (!this.user || !this.peer) throw new Error('Renseignez user et peer');
+.row {
+    display: flex;
+    gap: 8px;
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    align-items: center;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+    padding: 6px;
+}
 
-      this.setStatus('Génération des clés…');
-      this.keys = await crypto.subtle.generateKey(
-        { name: 'ECDH', namedCurve: 'P-256' },
-        true,
-        ['deriveKey']
-      );
-      const pubRaw = await crypto.subtle.exportKey('raw', this.keys.publicKey);
-      const pubB64 = toB64(pubRaw);
+.row label {
+    white-space: nowrap;
+}
 
-      // Open SSE first to receive peer events
-      await this.openSSE();
+input,
+button {
+    padding: 8px 12px;
+    border-radius: 3px;
+    border: 1px solid var(--mid);
+    background: transparent;
+    color: inherit;
+}
 
-      // Register our pubkey
-      await fetch(`${this.server}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: this.room, user: this.user, pubKeyRawB64: pubB64 }),
-      });
+input[type="text"] {
+    flex: 1;
+    min-width: 120px;
+}
 
-      // Try to get peers
-      await this.tryDeriveWithPeers();
+button {
+    background: var(--mid);
+    color: var(--fg);
+    cursor: pointer;
+    border-color: var(--mid);
+    white-space: nowrap;
+    transition: filter .2s ease;
+}
 
-      this.setStatus('Connecté');
-      this.ui.input.disabled = false;
-      this.ui.send.disabled = false;
-      this.logMsg('Système', 'Connecté. En attente/échange de clé avec le pair.');
-    } catch (e) {
-      console.error(e);
-      this.setStatus(`Erreur: ${e.message}`);
+button:hover:not(:disabled) {
+    filter: brightness(1.15);
+}
+
+button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.msgs {
+    flex: 1;
+    min-height: 250px;
+
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    padding: 8px;
+    overflow: auto;
+    background-color: var(--mid);
+
+    scrollbar-width: thin;
+}
+
+.msg {
+    padding: 4px 2px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.msg-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.from {
+    font-weight: 600;
+    margin-right: 6px;
+    color: var(--acc);
+}
+
+.msg-reply-quote {
+    border-left: 2px solid var(--acc);
+    padding-left: 6px;
+    font-size: 12px;
+    opacity: .75;
+    margin-bottom: 2px;
+    cursor: pointer;
+}
+
+.reply-btn {
+    padding: 2px 6px;
+    font-size: 11px;
+    opacity: .6;
+    flex-shrink: 0;
+}
+
+.reply-btn:hover {
+    opacity: 1;
+}
+
+#reply-preview {
+    display: none;
+    border-left: 3px solid var(--acc);
+    background: var(--mid);
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+#reply-preview-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status {
+    font-size: 12px;
+    opacity: 0.8;
+    margin-bottom: 6px;
+}
+
+details {
+    margin-top: 10px;
+}
+
+pre {
+    background: rgb(0, 29, 126);
+    padding: 8px;
+    border-radius: 6px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+#version {
+    position: fixed;
+    bottom: 10px;
+    left: 0;
+    width: 100%;
+    text-align: left;
+    font-size: 14px;
+    color: gray;
+    padding-left: 16px;
+}
+
+@media (max-width: 900px) {
+    main {
+        flex-direction: column;
     }
-  }
 
-  async openSSE() {
-    if (this.es) this.es.close();
-    const url = `${this.server}/events?room=${encodeURIComponent(this.room)}&user=${encodeURIComponent(this.user)}`;
-    this.es = new EventSource(url);
-    this.es.addEventListener('peer-joined', (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.user === this.peer) {
-        this.debug({ peerJoined: data.user });
-        this.tryDeriveWithPeers();
-      }
-    });
-    this.es.addEventListener('message', (ev) => this.onCipherMessage(ev));
-    this.es.onerror = (e) => {
-      console.warn('SSE error', e);
-    };
-  }
-
-  async tryDeriveWithPeers() {
-    // Fetch peers and derive shared key if peer pubkey is available
-    const res = await fetch(`${this.server}/peers?room=${encodeURIComponent(this.room)}`);
-    const json = await res.json();
-    const peerEntry = json.peers.find((p) => p.user === this.peer);
-    if (!peerEntry) return; // peer not registered yet
-    await this.deriveShared(peerEntry.pubKeyRawB64);
-  }
-
-  async deriveShared(peerPubB64) {
-    const peerPubKey = await crypto.subtle.importKey(
-      'raw',
-      fromB64(peerPubB64),
-      { name: 'ECDH', namedCurve: 'P-256' },
-      true,
-      []
-    );
-    this.shared = await crypto.subtle.deriveKey(
-      { name: 'ECDH', public: peerPubKey },
-      this.keys.privateKey,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['encrypt', 'decrypt']
-    );
-    this.logMsg('Système', `Clé de session établie avec ${this.peer}.`);
-  }
-
-  async onSend() {
-    const text = this.ui.input.value.trim();
-    if (!text) return;
-    this.ui.input.value = '';
-    if (!this.shared) {
-      this.logMsg('Système', 'En attente de la clé partagée…');
-      await this.tryDeriveWithPeers();
-      if (!this.shared) return;
+    .slctppl,
+    .pane {
+        width: 100%;
+        min-height: auto;
     }
-    const iv = randBytes(12);
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, this.shared, te.encode(text));
-    const payload = { ivB64: toB64(iv), ctB64: toB64(ct) };
-    await fetch(`${this.server}/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room: this.room, from: this.user, to: this.peer, payload }),
-    });
-    this.logMsg(this.user, text);
-  }
 
-  async onCipherMessage(ev) {
-    try {
-      const msg = JSON.parse(ev.data);
-      if (msg.to !== this.user) return; // ignore if not for me
-      if (!this.shared) await this.tryDeriveWithPeers();
-      const iv = new Uint8Array(fromB64(msg.payload.ivB64));
-      const ct = fromB64(msg.payload.ctB64);
-      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, this.shared, ct);
-      const text = td.decode(pt);
-      this.logMsg(msg.from, text);
-    } catch (e) {
-      this.logMsg('Erreur', 'Impossible de déchiffrer un message.');
+    .msgs {
+        max-height: 50vh;
     }
-  }
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  new Client();
-});
+@media (max-width: 480px) {
+    header {
+        font-size: 14px;
+        padding: 10px 12px;
+    }
 
+    main {
+        padding: 10px;
+        gap: 10px;
+    }
+
+    .row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    input,
+    button {
+        width: 100%;
+    }
+
+    #connect-row {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+</style>
+</head>
+
+<body>
+
+<header id="header-title">
+    kr1pt3d - private secure chat
+</header>
+
+<main>
+
+    <section class="slctppl">
+        <strong>Other chats</strong>
+        <div style="margin-top:10px; opacity:.7;">
+            (will be added soon I hope)
+        </div>
+    </section>
+
+    <section class="pane">
+
+        <div class="row">
+            <label for="room">Room ID :</label>
+            <input
+                id="room"
+                type="text"
+                autocomplete="off"
+                placeholder="ex: demo-room"
+                value="demo-room">
+        </div>
+
+        <div class="row">
+            <label for="user">Username :</label>
+            <input
+                id="user"
+                type="text"
+                autocomplete="username"
+                placeholder="Choose a username">
+        </div>
+
+        <div class="row">
+            <label for="peer">Peer :</label>
+            <input
+                id="peer"
+                type="text"
+                autocomplete="off"
+                placeholder="Enter your friend's ID">
+        </div>
+
+        <div class="row" id="connect-row">
+            <button id="connect">Connect</button>
+            <div class="status" id="status">Offline</div>
+        </div>
+
+        <div class="msgs" id="log"></div>
+
+        <div id="reply-preview">
+            <span id="reply-preview-text"></span>
+            <button id="reply-cancel">✕</button>
+        </div>
+
+        <div class="row">
+            <label for="input">Message :</label>
+            <input
+                id="input"
+                type="text"
+                placeholder="Your message"
+                disabled>
+            <button id="send" disabled>Send</button>
+        </div>
+
+        <details>
+            <summary>Debug informations</summary>
+            <pre id="debug"></pre>
+        </details>
+
+    </section>
+
+</main>
+
+<div id="version">
+    Version : chargement...
+</div>
+
+<script src="app.js"></script>
+
+<script>
+fetch("version.txt")
+    .then(response => response.text())
+    .then(data => {
+        const version = data.trim();
+
+        document.getElementById("version").textContent =
+            "Version : " + version;
+
+        document.getElementById("header-title").textContent =
+            "kr1pt3d - private secure chat - v" + version;
+    })
+    .catch(error => {
+        document.getElementById("version").textContent =
+            "Version : read error";
+
+        console.error(error);
+    });
+</script>
+
+</body>
+</html>
