@@ -128,7 +128,9 @@ class Client {
 
     const content = document.createElement('div');
     content.className = 'msg-content';
-    if (msg.from !== this.user && msg.from !== 'Système' && msg.from !== 'Erreur') {
+    // Add peer background only for actual peer messages (not system/error)
+    const isSystemMessage = msg.from === 'Système' || msg.from === 'Erreur';
+    if (msg.from === this.peer && !isSystemMessage) {
       content.classList.add('peer');
     }
 
