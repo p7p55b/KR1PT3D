@@ -109,7 +109,6 @@ class Client {
 
     const el = document.createElement('div');
     el.className = 'msg';
-    if (msg.from !== this.user) el.classList.add('peer');
     el.dataset.id = msg.id;
 
     const body = document.createElement('div');
@@ -127,12 +126,19 @@ class Client {
       body.appendChild(quote);
     }
 
+    const content = document.createElement('div');
+    content.className = 'msg-content';
+    if (msg.from !== this.user && msg.from !== 'Système' && msg.from !== 'Erreur') {
+      content.classList.add('peer');
+    }
+
     const from = document.createElement('span');
     from.className = 'from';
     from.textContent = `${msg.from}:`;
-    body.appendChild(from);
-    body.appendChild(document.createTextNode(msg.text));
+    content.appendChild(from);
+    content.appendChild(document.createTextNode(msg.text));
 
+    body.appendChild(content);
     el.appendChild(body);
 
     // "Système"/"Erreur" lines have no real id to reply to
