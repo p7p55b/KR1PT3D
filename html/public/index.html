@@ -125,10 +125,65 @@ button:disabled {
     scrollbar-width: thin;
 }
 
+.msg {
+    padding: 4px 2px;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.msg-body {
+    flex: 1;
+    min-width: 0;
+}
+
 .from {
     font-weight: 600;
     margin-right: 6px;
     color: var(--acc);
+}
+
+.msg-reply-quote {
+    border-left: 2px solid var(--acc);
+    padding-left: 6px;
+    font-size: 12px;
+    opacity: .75;
+    margin-bottom: 2px;
+    cursor: pointer;
+}
+
+.reply-btn {
+    padding: 4px 6px;
+    opacity: .6;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.reply-btn:hover {
+    opacity: 1;
+}
+
+#reply-preview {
+    display: none;
+    border-left: 3px solid var(--acc);
+    background: var(--mid);
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    border-radius: 3px;
+    font-size: 13px;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+}
+
+#reply-preview-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .status {
@@ -257,6 +312,11 @@ pre {
         </div>
 
         <div class="msgs" id="log"></div>
+
+        <div id="reply-preview">
+            <span id="reply-preview-text"></span>
+            <button id="reply-cancel">✕</button>
+        </div>
 
         <div class="row">
             <label for="input">Message :</label>
