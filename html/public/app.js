@@ -109,6 +109,7 @@ class Client {
 
     const el = document.createElement('div');
     el.className = 'msg';
+    if (msg.from !== this.user) el.classList.add('peer');
     el.dataset.id = msg.id;
 
     const body = document.createElement('div');
