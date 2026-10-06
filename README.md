@@ -14,3 +14,4 @@ to add :
 
 -gif and stickers embed
 
+-notification dot on the tab ? 
