@@ -6,6 +6,8 @@ to patch :
 
 -multiple user chat (key expire when multiple tab on the same browser)
 
+-tiny pixel line spacin btw text box and message box
+
 
 
 to add :
