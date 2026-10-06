@@ -17,3 +17,5 @@ to add :
 -notification dot on the tab ? 
 
 -markdown support 
+
+-multi line message with "maj + enter" to make structured messages
