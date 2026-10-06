@@ -21,3 +21,7 @@ to add :
 -markdown support 
 
 -multi line message with "maj + enter" to make structured messages
+
+other : 
+
+- standardised versioning system based on commit 
