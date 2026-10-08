@@ -19,33 +19,42 @@
     box-sizing: border-box;
 }
 
+html, body {
+    min-height: 100%;
+}
+
 body {
     margin: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
     font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, sans-serif;
     background-color: var(--bg);
     color: var(--fg);
 }
 
 header {
+    flex-shrink: 0;
     padding: 14px 18px;
     background: var(--mid);
-    border: 1px solid var(--lnclr);
+    border-bottom: 1px solid var(--lnclr);
     color: var(--fg);
     font-weight: 600;
 }
 
 main {
-    padding: 16px;
+    flex: 1;
     display: flex;
     gap: 16px;
-    align-items: flex-start;
-    flex-wrap: wrap;
+    padding: 16px;
+    min-height: 0;
+    width: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
 .slctppl {
-    flex: 1 1 220px;
-    min-width: 200px;
-    min-height: 300px;
+    flex: 0 0 240px;
     border: 1px solid var(--lnclr);
     border-radius: 3px;
     padding: 12px;
@@ -53,16 +62,15 @@ main {
 }
 
 .pane {
-    flex: 3 1 480px;
-    min-width: 280px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
     border-radius: 3px;
     padding: 12px;
     background-color: var(--pane-bg);
     color: var(--fg);
-
-    display: flex;
-    flex-direction: column;
-    height: 80vh;
 }
 
 .row {
@@ -72,12 +80,12 @@ main {
     border-radius: 3px;
     align-items: center;
     margin-bottom: 8px;
-    flex-wrap: wrap;
     padding: 6px;
 }
 
 .row label {
     white-space: nowrap;
+    min-width: 80px;
 }
 
 input,
@@ -87,11 +95,17 @@ button {
     border: 1px solid var(--mid);
     background: transparent;
     color: inherit;
+    font-family: inherit;
+    font-size: 14px;
 }
 
 input[type="text"] {
     flex: 1;
-    min-width: 120px;
+    min-width: 0;
+}
+
+input[type="text"]:focus {
+    outline: 1px solid var(--acc);
 }
 
 button {
@@ -112,17 +126,20 @@ button:disabled {
     cursor: not-allowed;
 }
 
+#connect-row {
+    justify-content: space-between;
+}
+
 .msgs {
     flex: 1;
     min-height: 250px;
-
     border: 1px solid var(--lnclr);
     border-radius: 3px;
     padding: 8px;
-    overflow: auto;
+    overflow-y: auto;
     background-color: var(--mid);
-
     scrollbar-width: thin;
+    overflow-anchor: auto;
 }
 
 .msg {
@@ -135,10 +152,14 @@ button:disabled {
 .msg-body {
     flex: 1;
     min-width: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .msg-content {
     display: block;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .msg-content.peer {
@@ -160,6 +181,8 @@ button:disabled {
     opacity: .75;
     margin-bottom: 2px;
     cursor: pointer;
+    word-break: break-word;
+    overflow-wrap: anywhere;
 }
 
 .reply-btn {
@@ -196,76 +219,128 @@ button:disabled {
     white-space: nowrap;
 }
 
+#reply-cancel {
+    padding: 2px 6px;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
 .status {
     font-size: 12px;
     opacity: 0.8;
-    margin-bottom: 6px;
 }
 
 details {
-    margin-top: 10px;
+    margin-top: 8px;
+    font-size: 13px;
+}
+
+summary {
+    cursor: pointer;
+    user-select: none;
 }
 
 pre {
     background: rgb(0, 29, 126);
     padding: 8px;
-    border-radius: 6px;
+    border-radius: 3px;
     overflow: auto;
     white-space: pre-wrap;
     word-break: break-word;
+    margin: 6px 0 0;
+    font-size: 12px;
 }
 
 #version {
-    position: fixed;
-    bottom: 10px;
-    left: 0;
+    flex-shrink: 0;
+    padding: 8px 16px;
+    font-size: 12px;
+    color: var(--lnclr);
+    opacity: 0.7;
     width: 100%;
-    text-align: left;
-    font-size: 14px;
-    color: gray;
-    padding-left: 16px;
+    max-width: 1400px;
+    margin: 0 auto;
 }
 
 @media (max-width: 900px) {
     main {
         flex-direction: column;
+        padding: 12px;
+        gap: 12px;
     }
 
-    .slctppl,
+    .slctppl {
+        flex: 0 0 auto;
+        width: 100%;
+        min-height: auto;
+        padding: 10px;
+    }
+
     .pane {
         width: 100%;
         min-height: auto;
     }
 
     .msgs {
-        max-height: 50vh;
+        min-height: 280px;
+        height: 50vh;
     }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 600px) {
     header {
-        font-size: 14px;
         padding: 10px 12px;
+        font-size: 14px;
     }
 
     main {
-        padding: 10px;
-        gap: 10px;
+        padding: 8px;
+        gap: 8px;
+    }
+
+    .pane {
+        padding: 8px;
     }
 
     .row {
-        flex-direction: column;
-        align-items: stretch;
+        padding: 4px 6px;
+        margin-bottom: 6px;
+        gap: 6px;
+    }
+
+    .row label {
+        font-size: 13px;
+        min-width: 75px;
     }
 
     input,
     button {
-        width: 100%;
+        font-size: 16px;
     }
 
-    #connect-row {
-        flex-direction: row;
-        flex-wrap: wrap;
+    .send-row label {
+        display: none;
+    }
+
+    .send-row input[type="text"] {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .send-row button {
+        flex: 0 0 auto;
+        padding: 8px 14px;
+    }
+
+    .msgs {
+        min-height: 220px;
+        height: 45vh;
+        padding: 6px;
+    }
+
+    #version {
+        padding: 6px 8px;
+        font-size: 11px;
     }
 }
 </style>
@@ -328,7 +403,7 @@ pre {
             <button id="reply-cancel">✕</button>
         </div>
 
-        <div class="row">
+        <div class="row send-row">
             <label for="input">Message :</label>
             <input
                 id="input"

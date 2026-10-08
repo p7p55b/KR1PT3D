@@ -13,6 +13,10 @@ const KEY_FILE = process.env.KEY_FILE || path.join(__dirname, 'key.pem');
 const CERT_FILE = process.env.CERT_FILE || path.join(__dirname, 'cert.pem');
 const CERT_CN = process.env.CERT_CN || 'localhost';
 const AUTO_CERT = process.env.AUTO_CERT !== '0';
+const STATIC_DIR = process.env.STATIC_DIR ||
+  (fs.existsSync(path.resolve(__dirname, '..', 'front'))
+    ? path.resolve(__dirname, '..', 'front')
+    : path.resolve(__dirname, 'public'));
 
 // In-memory state: rooms -> { clients, pubkeys, queues }
 // clients: Map<user, res> (SSE connections)
@@ -70,8 +74,9 @@ function parseBody(req) {
 
 function serveStatic(req, res) {
   const reqPath = url.parse(req.url).pathname;
-  let filePath = path.join(__dirname, 'public', reqPath === '/' ? 'index.html' : reqPath);
-  if (!filePath.startsWith(path.join(__dirname, 'public'))) {
+  const safePath = path.normalize(reqPath === '/' ? '/index.html' : reqPath).replace(/^(\.\.[\/\\])+/, '');
+  const filePath = path.join(STATIC_DIR, safePath);
+  if (!filePath.startsWith(STATIC_DIR)) {
     return notFound(res);
   }
   fs.readFile(filePath, (err, data) => {
@@ -79,6 +84,8 @@ function serveStatic(req, res) {
     const ext = path.extname(filePath).toLowerCase();
     const mime = ext === '.html' ? 'text/html; charset=utf-8'
       : ext === '.js' ? 'text/javascript; charset=utf-8'
+      : ext === '.css' ? 'text/css; charset=utf-8'
+      : ext === '.json' ? 'application/json; charset=utf-8'
       : 'text/plain; charset=utf-8';
     res.setHeader('Content-Type', mime);
     res.end(data);

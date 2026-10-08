@@ -7,8 +7,14 @@
         {
             "type": "editor-browser",
             "request": "launch",
-            "name": "Open index.html",
-            "url": "file:///home/foxter/Documents/GitHub/KR1PT3D/html/public/index.html"
+            "name": "Open index.html (Local file)",
+            "url": "${workspaceFolder}/front/index.html"
+        },
+        {
+            "type": "editor-browser",
+            "request": "launch",
+            "name": "Open Relay Server (https://localhost:3000)",
+            "url": "https://localhost:3000"
         }
     ]
 }

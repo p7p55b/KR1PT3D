@@ -1,0 +1,8 @@
+{
+  "name": "kr1pt3d",
+  "version": "0.0.2",
+  "private": true,
+  "scripts": {
+    "start": "node backend/server.js"
+  }
+}
