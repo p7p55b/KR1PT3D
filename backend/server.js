@@ -43,12 +43,60 @@ function getRoom(roomId) {
   return rooms.get(roomId);
 }
 
+let cachedVersion = null;
+function getCommitVersion() {
+  if (cachedVersion) return cachedVersion;
+  try {
+    const gitDir = path.resolve(__dirname, '..');
+    const hash = execSync('git rev-parse --short HEAD', { cwd: gitDir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    const count = execSync('git rev-list --count HEAD', { cwd: gitDir, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+    cachedVersion = `v0.1.0-r${count}.${hash}`;
+    return cachedVersion;
+  } catch (_) {
+    try {
+      const vFile = path.join(STATIC_DIR, 'version.txt');
+      if (fs.existsSync(vFile)) {
+        cachedVersion = fs.readFileSync(vFile, 'utf8').trim();
+        return cachedVersion;
+      }
+    } catch (_) {}
+    return 'v0.1.0-dev';
+  }
+}
+
 function sseWrite(res, event, data) {
   try {
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   } catch (_) {
     // Ignore write errors on closed sockets
+  }
+}
+
+function sendToUser(room, user, event, data) {
+  const clientSet = room.clients.get(user);
+  if (clientSet && clientSet.size > 0) {
+    for (const res of clientSet) {
+      sseWrite(res, event, data);
+    }
+  } else {
+    if (!room.queues.has(user)) room.queues.set(user, []);
+    room.queues.get(user).push({ event, data });
+  }
+}
+
+function broadcastToRoom(room, event, data, excludeUser) {
+  for (const [u, clientSet] of room.clients.entries()) {
+    if (u === excludeUser) continue;
+    for (const res of clientSet) {
+      sseWrite(res, event, data);
+    }
+  }
+  for (const [u] of room.queues.entries()) {
+    if (u === excludeUser) continue;
+    if (!room.clients.has(u) || room.clients.get(u).size === 0) {
+      room.queues.get(u).push({ event, data });
+    }
   }
 }
 
@@ -74,6 +122,12 @@ function parseBody(req) {
 
 function serveStatic(req, res) {
   const reqPath = url.parse(req.url).pathname;
+  if (reqPath === '/version.txt') {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.end(getCommitVersion());
+  }
+
   const safePath = path.normalize(reqPath === '/' ? '/index.html' : reqPath).replace(/^(\.\.[\/\\])+/, '');
   const filePath = path.join(STATIC_DIR, safePath);
   if (!filePath.startsWith(STATIC_DIR)) {
@@ -96,6 +150,11 @@ const requestHandler = async (req, res) => {
   const { pathname, query } = url.parse(req.url, true);
   console.log(`${new Date().toISOString()} ${pathname}`);
 
+  // Anti-fingerprinting and security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+
   // SSE stream: /events?room=...&user=...
   if (req.method === 'GET' && pathname === '/events') {
     const roomId = query.room || 'default';
@@ -105,6 +164,7 @@ const requestHandler = async (req, res) => {
       return res.end('Missing user');
     }
     const room = getRoom(roomId);
+
     // Setup SSE
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
@@ -113,7 +173,11 @@ const requestHandler = async (req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
     res.write(': connected\n\n');
-    room.clients.set(user, res);
+
+    if (!room.clients.has(user)) {
+      room.clients.set(user, new Set());
+    }
+    room.clients.get(user).add(res);
 
     // Keepalive to prevent idle timeouts on some proxies
     const ka = setInterval(() => {
@@ -125,9 +189,25 @@ const requestHandler = async (req, res) => {
     q.forEach(({ event, data }) => sseWrite(res, event, data));
     room.queues.set(user, []);
 
+    // Broadcast online status if user already registered key
+    if (room.pubkeys.has(user)) {
+      broadcastToRoom(room, 'peer-joined', {
+        user,
+        pubKeyRawB64: room.pubkeys.get(user),
+        online: true,
+      }, user);
+    }
+
     req.on('close', () => {
       clearInterval(ka);
-      room.clients.delete(user);
+      const set = room.clients.get(user);
+      if (set) {
+        set.delete(res);
+        if (set.size === 0) {
+          room.clients.delete(user);
+          broadcastToRoom(room, 'peer-left', { user, online: false }, user);
+        }
+      }
     });
     return; // Keep open
   }
@@ -145,16 +225,8 @@ const requestHandler = async (req, res) => {
       if (!r.queues.has(user)) r.queues.set(user, []);
 
       // Notify others in the room
-      const evt = { event: 'peer-joined', data: { user, pubKeyRawB64 } };
-      for (const [u, clientRes] of r.clients.entries()) {
-        if (u === user) continue;
-        sseWrite(clientRes, evt.event, evt.data);
-      }
-      // Also enqueue for offline peers
-      for (const [u] of r.queues.entries()) {
-        if (u === user) continue;
-        if (!r.clients.has(u)) r.queues.get(u).push(evt);
-      }
+      const evt = { event: 'peer-joined', data: { user, pubKeyRawB64, online: true } };
+      broadcastToRoom(r, evt.event, evt.data, user);
 
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.end(JSON.stringify({ ok: true }));
@@ -173,7 +245,11 @@ const requestHandler = async (req, res) => {
       return res.end('Missing room');
     }
     const r = getRoom(roomId);
-    const peers = Array.from(r.pubkeys.entries()).map(([user, pubKeyRawB64]) => ({ user, pubKeyRawB64 }));
+    const peers = Array.from(r.pubkeys.entries()).map(([u, pubKeyRawB64]) => ({
+      user: u,
+      pubKeyRawB64,
+      online: r.clients.has(u) && r.clients.get(u).size > 0,
+    }));
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
     return res.end(JSON.stringify({ peers }));
@@ -190,14 +266,7 @@ const requestHandler = async (req, res) => {
       const r = getRoom(room);
       const messageEvt = { event: 'message', data: { from, to, payload } };
 
-      // If recipient connected, push via SSE; else queue for later
-      const toRes = r.clients.get(to);
-      if (toRes) {
-        sseWrite(toRes, messageEvt.event, messageEvt.data);
-      } else {
-        if (!r.queues.has(to)) r.queues.set(to, []);
-        r.queues.get(to).push(messageEvt);
-      }
+      sendToUser(r, to, messageEvt.event, messageEvt.data);
 
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.end(JSON.stringify({ ok: true }));

@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>kr1pt3d-unstable</title>
+<meta name="referrer" content="no-referrer">
+<title>kr1pt3d - private secure chat</title>
 
 <style>
 :root {
@@ -59,6 +60,75 @@ main {
     border-radius: 3px;
     padding: 12px;
     background-color: var(--pane-bg);
+    display: flex;
+    flex-direction: column;
+}
+
+.slctppl-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--lnclr);
+    padding-bottom: 8px;
+    margin-bottom: 8px;
+}
+
+.badge {
+    background: var(--mid);
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 11px;
+}
+
+.peers-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow-y: auto;
+    max-height: 400px;
+}
+
+.empty-peers {
+    opacity: 0.6;
+    font-size: 12px;
+    padding: 8px 0;
+}
+
+.peer-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.peer-item:hover {
+    background-color: var(--mid);
+    border-color: var(--lnclr);
+}
+
+.peer-item.active {
+    background-color: var(--mid);
+    border-color: var(--acc);
+    font-weight: 600;
+}
+
+.peer-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #666;
+    flex-shrink: 0;
+}
+
+.peer-dot.online {
+    background: #4ade80;
+    box-shadow: 0 0 5px #4ade80;
 }
 
 .pane {
@@ -89,6 +159,7 @@ main {
 }
 
 input,
+textarea,
 button {
     padding: 8px 12px;
     border-radius: 3px;
@@ -104,8 +175,20 @@ input[type="text"] {
     min-width: 0;
 }
 
-input[type="text"]:focus {
+input[type="text"]:focus,
+textarea:focus {
     outline: 1px solid var(--acc);
+}
+
+textarea#input {
+    flex: 1;
+    min-width: 0;
+    resize: none;
+    min-height: 38px;
+    max-height: 140px;
+    padding: 8px 12px;
+    line-height: 1.4;
+    overflow-y: auto;
 }
 
 button {
@@ -140,6 +223,7 @@ button:disabled {
     background-color: var(--mid);
     scrollbar-width: thin;
     overflow-anchor: auto;
+    margin-bottom: 0;
 }
 
 .msg {
@@ -203,7 +287,8 @@ button:disabled {
     border-left: 3px solid var(--acc);
     background: var(--mid);
     padding: 6px 10px;
-    margin-bottom: 8px;
+    margin-top: 4px;
+    margin-bottom: 0;
     border-radius: 3px;
     font-size: 13px;
     justify-content: space-between;
@@ -223,6 +308,130 @@ button:disabled {
     padding: 2px 6px;
     font-size: 12px;
     flex-shrink: 0;
+}
+
+#sticker-panel {
+    border: 1px solid var(--lnclr);
+    background: var(--mid);
+    border-radius: 3px;
+    padding: 8px;
+    margin-top: 4px;
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.sticker-input-row {
+    display: flex;
+    gap: 6px;
+}
+
+.sticker-input-row input {
+    flex: 1;
+    font-size: 13px;
+    padding: 6px 8px;
+}
+
+.sticker-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.sticker-item {
+    font-size: 12px;
+    padding: 4px 8px;
+    background: var(--pane-bg);
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+.sticker-item:hover {
+    filter: brightness(1.2);
+}
+
+.send-row {
+    margin-top: 4px;
+    margin-bottom: 8px;
+}
+
+/* Markdown and media embedding styles */
+.md-code {
+    background: rgba(0, 0, 0, 0.3);
+    padding: 2px 5px;
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--acc);
+    border: 1px solid rgba(205, 204, 178, 0.2);
+}
+
+.md-pre {
+    background: rgba(0, 0, 0, 0.4);
+    padding: 8px;
+    border-radius: 3px;
+    overflow-x: auto;
+    margin: 6px 0;
+    border: 1px solid rgba(205, 204, 178, 0.3);
+}
+
+.md-pre code {
+    font-family: monospace;
+    font-size: 13px;
+    color: var(--fg);
+}
+
+.md-quote {
+    border-left: 3px solid var(--acc);
+    margin: 4px 0;
+    padding-left: 8px;
+    opacity: 0.85;
+    font-style: italic;
+}
+
+.md-link {
+    color: var(--acc);
+    text-decoration: underline;
+}
+
+.chat-embed-img {
+    max-width: 260px;
+    max-height: 200px;
+    width: auto;
+    height: auto;
+    display: block;
+    margin-top: 6px;
+    border-radius: 3px;
+    border: 1px solid var(--lnclr);
+    object-fit: cover;
+}
+
+.chat-embed-link {
+    display: inline-block;
+    max-width: 100%;
+}
+
+.chat-embed-blocked {
+    margin-top: 6px;
+    padding: 6px 10px;
+    border: 1px dashed var(--lnclr);
+    border-radius: 3px;
+    background: rgba(0, 0, 0, 0.25);
+    display: inline-block;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--acc);
+}
+
+.chat-embed-blocked:hover {
+    filter: brightness(1.2);
+}
+
+.embed-warning {
+    font-size: 11px;
+    user-select: none;
 }
 
 .status {
@@ -276,6 +485,10 @@ pre {
         padding: 10px;
     }
 
+    .peers-list {
+        max-height: 120px;
+    }
+
     .pane {
         width: 100%;
         min-height: auto;
@@ -314,6 +527,7 @@ pre {
     }
 
     input,
+    textarea,
     button {
         font-size: 16px;
     }
@@ -322,14 +536,14 @@ pre {
         display: none;
     }
 
-    .send-row input[type="text"] {
+    .send-row textarea#input {
         flex: 1;
         min-width: 0;
     }
 
     .send-row button {
         flex: 0 0 auto;
-        padding: 8px 14px;
+        padding: 8px 12px;
     }
 
     .msgs {
@@ -354,10 +568,13 @@ pre {
 
 <main>
 
-    <section class="slctppl">
-        <strong>Other chats</strong>
-        <div style="margin-top:10px; opacity:.7;">
-            (will be added soon I hope)
+    <section class="slctppl" id="peer-list-section">
+        <div class="slctppl-title">
+            <strong>Online peers</strong>
+            <span id="peers-count" class="badge">0</span>
+        </div>
+        <div id="peers-list" class="peers-list">
+            <div class="empty-peers">No peers connected</div>
         </div>
     </section>
 
@@ -388,7 +605,7 @@ pre {
                 id="peer"
                 type="text"
                 autocomplete="off"
-                placeholder="Enter your friend's ID">
+                placeholder="Enter friend ID or select from list">
         </div>
 
         <div class="row" id="connect-row">
@@ -403,13 +620,31 @@ pre {
             <button id="reply-cancel">✕</button>
         </div>
 
+        <div id="sticker-panel" style="display: none;">
+            <div class="sticker-input-row">
+                <input id="gif-url-input" type="text" placeholder="Direct image/GIF URL...">
+                <button type="button" id="gif-insert-btn">Embed</button>
+            </div>
+            <div class="sticker-grid">
+                <button type="button" class="sticker-item" data-text="( ͡° ͜ʖ ͡°)">( ͡° ͜ʖ ͡°)</button>
+                <button type="button" class="sticker-item" data-text="¯\_(ツ)_/¯">¯\_(ツ)_/¯</button>
+                <button type="button" class="sticker-item" data-text="ಠ_ಠ">ಠ_ಠ</button>
+                <button type="button" class="sticker-item" data-text="(╯°□°)╯︵ ┻━┻">(╯°□°)╯︵ ┻━┻</button>
+                <button type="button" class="sticker-item" data-text="https://media.giphy.com/media/unQ3IJU2RG7DO/giphy.gif">[ Popcorn ]</button>
+                <button type="button" class="sticker-item" data-text="https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif">[ Mind Blown ]</button>
+                <button type="button" class="sticker-item" data-text="https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif">[ Hacker ]</button>
+                <button type="button" class="sticker-item" data-text="https://media.giphy.com/media/ule4akeEDWA0g/giphy.gif">[ Cat typing ]</button>
+            </div>
+        </div>
+
         <div class="row send-row">
             <label for="input">Message :</label>
-            <input
+            <textarea
                 id="input"
-                type="text"
-                placeholder="Your message"
-                disabled>
+                rows="1"
+                placeholder="Your message (Shift+Enter for newline)"
+                disabled></textarea>
+            <button type="button" id="sticker-btn" title="GIF / Stickers" disabled>[ GIF ]</button>
             <button id="send" disabled>Send</button>
         </div>
 
@@ -438,7 +673,7 @@ fetch("version.txt")
             "Version : " + version;
 
         document.getElementById("header-title").textContent =
-            "kr1pt3d - private secure chat - v" + version;
+            "kr1pt3d - private secure chat - " + version;
     })
     .catch(error => {
         document.getElementById("version").textContent =
