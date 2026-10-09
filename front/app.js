@@ -432,10 +432,9 @@ class Client {
 
   async connect() {
     try {
-      if (!window.isSecureContext) {
-        console.warn('Web Crypto recommande HTTPS ou localhost.');
+      if (!window.isSecureContext || !window.crypto?.subtle) {
+        throw new Error("crypto.subtle indisponible : HTTPS est obligatoire sur mobile. Veuillez accéder via https:// (et non http://).");
       }
-      if (!crypto?.subtle) throw new Error('crypto.subtle non disponible');
 
       this.room = this.ui.room.value.trim() || 'demo-room';
       this.user = this.ui.user.value.trim();

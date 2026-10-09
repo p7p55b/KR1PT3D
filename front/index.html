@@ -6,6 +6,12 @@
 <meta name="referrer" content="no-referrer">
 <title>kr1pt3d - private secure chat</title>
 
+<script>
+if (location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    location.replace('https:' + location.href.substring(5));
+}
+</script>
+
 <style>
 :root {
     --bg: #545e60;
@@ -584,6 +590,21 @@ pre {
     kr1pt3d - private secure chat
 </header>
 
+<div id="https-warning" style="display: none; background: #b91c1c; color: #fff; padding: 10px 16px; font-size: 13px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.2);">
+    🔒 <strong>Attention :</strong> Le chiffrement E2EE (Web Crypto / crypto.subtle) est désactivé par le navigateur car vous êtes en <strong>HTTP non sécurisé</strong>. Sur mobile, vous devez impérativement vous connecter en <strong>HTTPS</strong>.
+    <a id="https-link" href="#" style="color: #fef08a; text-decoration: underline; margin-left: 8px; font-weight: bold;">Basculer vers HTTPS</a>
+</div>
+<script>
+if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
+    const banner = document.getElementById('https-warning');
+    const link = document.getElementById('https-link');
+    if (banner && link) {
+        link.href = 'https:' + location.href.substring(location.protocol.length);
+        banner.style.display = 'block';
+    }
+}
+</script>
+
 <main>
 
     <section class="slctppl" id="peer-list-section">
@@ -679,7 +700,7 @@ pre {
     Version : chargement...
 </div>
 
-<script src="app.js?v=0.2.0"></script>
+<script src="app.js?v=0.2.1"></script>
 
 <script>
 fetch("version.txt")
