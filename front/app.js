@@ -100,6 +100,7 @@ class Client {
     this.es = null; // EventSource
     this.server = location.origin;
     this.pubB64 = null;
+    this.isConnected = false;
     this.lastHeartbeat = Date.now();
     this.reconnectTimer = null;
     this.syncInterval = null;
@@ -136,7 +137,18 @@ class Client {
       gifInsertBtn: document.getElementById('gif-insert-btn'),
     };
 
-    ui.connect.addEventListener('click', () => this.connect());
+    ui.connect.addEventListener('click', () => {
+      if (this.isConnected) {
+        this.disconnect();
+      } else {
+        this.connect();
+      }
+    });
+    window.addEventListener('beforeunload', () => {
+      if (this.isConnected) {
+        this.disconnect(true);
+      }
+    });
     ui.send.addEventListener('click', () => this.onSend());
 
     // Multiline: Enter sends, Shift+Enter adds newline
@@ -431,30 +443,90 @@ class Client {
 
       if (!this.user) throw new Error("Veuillez renseigner un nom d'utilisateur (Username)");
 
-      this.setStatus('Initialisation des clés…');
+      this.setStatus('Connexion au réseau…');
+      this.ui.connect.disabled = true;
+
       const { keys, pubB64 } = await this.getOrCreateKeys(this.room, this.user);
       this.keys = keys;
       this.pubB64 = pubB64;
 
       await this.openSSE();
-
-      // Register public key
       await this.registerKey();
-
-      // Fetch all peers in the room
       await this.fetchPeers();
 
       this.startHeartbeatWatchdog();
 
-      this.setStatus('Connecté');
+      this.isConnected = true;
+      this.ui.connect.disabled = false;
+      this.ui.connect.textContent = 'Déconnexion';
+      this.ui.room.disabled = true;
+      this.ui.user.disabled = true;
       this.ui.input.disabled = false;
       this.ui.send.disabled = false;
       if (this.ui.stickerBtn) this.ui.stickerBtn.disabled = false;
 
-      this.logSystem('Système', `Connecté en tant que ${this.user} dans la room "${this.room}".`);
+      this.setStatus('En ligne');
+      this.renderPeers();
+
+      this.logSystem('Système', `Connecté au réseau en tant que "${this.user}" dans la room "${this.room}". Vous êtes désormais visible.`);
+
+      if (this.peer && this.peer !== this.user) {
+        this.getSharedKey(this.peer);
+      }
     } catch (e) {
       console.error(e);
+      this.isConnected = false;
+      this.ui.connect.disabled = false;
+      this.ui.connect.textContent = 'Connect to network';
       this.setStatus(`Erreur: ${e.message}`);
+    }
+  }
+
+  async disconnect(isUnloading = false) {
+    const prevRoom = this.room;
+    const prevUser = this.user;
+
+    // Inform server we are leaving
+    if (prevRoom && prevUser) {
+      try {
+        const payload = JSON.stringify({ room: prevRoom, user: prevUser });
+        if (isUnloading && navigator.sendBeacon) {
+          navigator.sendBeacon(`${this.server}/leave`, new Blob([payload], { type: 'application/json' }));
+        } else {
+          fetch(`${this.server}/leave`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch (_) {}
+    }
+
+    if (this.es) {
+      try { this.es.close(); } catch (_) {}
+      this.es = null;
+    }
+    clearTimeout(this.reconnectTimer);
+    if (this.heartbeatWatchdog) clearInterval(this.heartbeatWatchdog);
+    if (this.syncInterval) clearInterval(this.syncInterval);
+
+    this.isConnected = false;
+    this.peers.clear();
+    this.peerPubKeys.clear();
+    this.sharedKeys.clear();
+
+    if (!isUnloading) {
+      this.ui.connect.disabled = false;
+      this.ui.connect.textContent = 'Connect to network';
+      this.ui.room.disabled = false;
+      this.ui.user.disabled = false;
+      this.ui.input.disabled = true;
+      this.ui.send.disabled = true;
+      if (this.ui.stickerBtn) this.ui.stickerBtn.disabled = true;
+      this.setStatus('Offline');
+      this.renderPeers();
+      this.logSystem('Système', 'Vous vous êtes déconnecté du réseau.');
     }
   }
 
@@ -623,40 +695,65 @@ class Client {
 
   renderPeers() {
     if (!this.ui.peersList) return;
-    const allPeers = Array.from(this.peers.values()).filter((p) => p.user !== this.user);
-    allPeers.sort((a, b) => {
-      if (a.online === b.online) return a.user.localeCompare(b.user);
-      return a.online ? -1 : 1;
-    });
 
-    const onlineCount = allPeers.filter((p) => p.online).length;
-    if (this.ui.peersCount) this.ui.peersCount.textContent = `${onlineCount}`;
-
-    if (allPeers.length === 0) {
-      this.ui.peersList.innerHTML = '<div class="empty-peers">No peers connected</div>';
+    if (!this.isConnected) {
+      this.ui.peersList.innerHTML = '<div class="empty-peers">Non connecté au réseau</div>';
+      if (this.ui.peersCount) this.ui.peersCount.textContent = '0';
       return;
     }
 
+    // Ensure self is in this.peers marked as online
+    if (this.user) {
+      if (!this.peers.has(this.user)) {
+        this.peers.set(this.user, { user: this.user, pubKeyRawB64: this.pubB64, online: true });
+      } else {
+        this.peers.get(this.user).online = true;
+      }
+    }
+
+    const peersArray = Array.from(this.peers.values());
+    peersArray.sort((a, b) => {
+      // Current user is always first at the top
+      if (a.user === this.user) return -1;
+      if (b.user === this.user) return 1;
+      // Then online users
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.user.localeCompare(b.user);
+    });
+
+    const onlineCount = peersArray.filter((p) => p.online).length;
+    if (this.ui.peersCount) this.ui.peersCount.textContent = `${onlineCount}`;
+
     this.ui.peersList.innerHTML = '';
-    allPeers.forEach((peer) => {
+    peersArray.forEach((peer) => {
+      const isMe = peer.user === this.user;
+      const isSelected = !isMe && peer.user === this.peer;
+
       const item = document.createElement('div');
-      item.className = 'peer-item' + (peer.user === this.peer ? ' active' : '');
+      item.className = 'peer-item' + (isMe ? ' peer-me' : '') + (isSelected ? ' active' : '');
       item.dataset.user = peer.user;
 
       const dot = document.createElement('span');
       dot.className = 'peer-dot' + (peer.online ? ' online' : '');
-      dot.title = peer.online ? 'En ligne' : 'Hors ligne';
+      dot.title = isMe ? 'Vous êtes en ligne' : (peer.online ? 'En ligne' : 'Hors ligne');
 
       const name = document.createElement('span');
       name.className = 'peer-name';
-      name.textContent = peer.user;
+      name.textContent = isMe ? `${peer.user} (Vous)` : peer.user;
 
       item.appendChild(dot);
       item.appendChild(name);
 
-      item.addEventListener('click', () => {
-        this.selectPeer(peer.user);
-      });
+      if (isMe) {
+        const badge = document.createElement('span');
+        badge.className = 'me-badge';
+        badge.textContent = 'Moi';
+        item.appendChild(badge);
+      } else {
+        item.addEventListener('click', () => {
+          this.selectPeer(peer.user);
+        });
+      }
 
       this.ui.peersList.appendChild(item);
     });

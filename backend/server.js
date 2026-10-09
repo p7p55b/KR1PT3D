@@ -265,6 +265,30 @@ const requestHandler = async (req, res) => {
     return;
   }
 
+  // Leave room: POST /leave { room, user }
+  if (req.method === 'POST' && pathname === '/leave') {
+    try {
+      const { room, user } = await parseBody(req);
+      if (room && user) {
+        const r = getRoom(room);
+        const set = r.clients.get(user);
+        if (set) {
+          for (const clientRes of set) {
+            try { clientRes.end(); } catch (_) {}
+          }
+          r.clients.delete(user);
+        }
+        broadcastToRoom(r, 'peer-left', { user, online: false }, user);
+      }
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.end(JSON.stringify({ ok: true }));
+    } catch (_) {
+      res.statusCode = 500;
+      res.end('Error');
+    }
+    return;
+  }
+
   // Get peers: GET /peers?room=...
   if (req.method === 'GET' && pathname === '/peers') {
     const roomId = query.room;

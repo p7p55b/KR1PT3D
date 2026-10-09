@@ -118,6 +118,24 @@ main {
     font-weight: 600;
 }
 
+.peer-item.peer-me {
+    background-color: rgba(74, 222, 128, 0.08);
+    border-color: rgba(74, 222, 128, 0.25);
+    cursor: default;
+}
+
+.me-badge {
+    margin-left: auto;
+    font-size: 10px;
+    padding: 1px 5px;
+    background: var(--mid);
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    opacity: 0.9;
+    color: #4ade80;
+    font-weight: normal;
+}
+
 .peer-dot {
     width: 8px;
     height: 8px;
@@ -599,18 +617,18 @@ pre {
                 placeholder="Choose a username">
         </div>
 
-        <div class="row">
-            <label for="peer">Peer :</label>
+        <div class="row" id="connect-row">
+            <button id="connect">Connect to network</button>
+            <div class="status" id="status">Offline</div>
+        </div>
+
+        <div class="row" id="peer-row">
+            <label for="peer">Chat with :</label>
             <input
                 id="peer"
                 type="text"
                 autocomplete="off"
-                placeholder="Enter friend ID or select from list">
-        </div>
-
-        <div class="row" id="connect-row">
-            <button id="connect">Connect</button>
-            <div class="status" id="status">Offline</div>
+                placeholder="Select from list or type peer username">
         </div>
 
         <div class="msgs" id="log"></div>
