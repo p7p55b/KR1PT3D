@@ -105,6 +105,13 @@ function notFound(res) {
   res.end('Not Found');
 }
 
+function getAllRoomUsers(room) {
+  const users = new Set();
+  for (const u of room.pubkeys.keys()) users.add(u);
+  for (const u of room.clients.keys()) users.add(u);
+  return users;
+}
+
 function parseBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -165,13 +172,24 @@ const requestHandler = async (req, res) => {
     }
     const room = getRoom(roomId);
 
-    // Setup SSE
+    // Disable socket idle timeout and enable TCP keepalive for long-lived reverse-proxy connections
+    if (req.socket) {
+      req.socket.setKeepAlive(true, 10000);
+      req.socket.setTimeout(0);
+    }
+
+    // Setup SSE with anti-buffering headers (Cloudflare Zero Trust / NGINX / reverse proxies)
     res.writeHead(200, {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
     });
+
+    // 2KB padding comment to immediately flush Cloudflare / reverse proxy buffers
+    res.write(':' + ' '.repeat(2048) + '\n\n');
+    res.write('retry: 3000\n\n');
     res.write(': connected\n\n');
 
     if (!room.clients.has(user)) {
@@ -179,24 +197,33 @@ const requestHandler = async (req, res) => {
     }
     room.clients.get(user).add(res);
 
-    // Keepalive to prevent idle timeouts on some proxies
+    // Keepalive ping every 12s to prevent Cloudflare Zero Trust / reverse proxy timeouts
     const ka = setInterval(() => {
-      try { res.write(': keepalive\n\n'); } catch {}
-    }, 25000);
+      try {
+        res.write(': keepalive\n\n');
+        sseWrite(res, 'ping', { time: Date.now() });
+      } catch (_) {}
+    }, 12000);
 
     // Drain queued events if any
     const q = room.queues.get(user) || [];
     q.forEach(({ event, data }) => sseWrite(res, event, data));
     room.queues.set(user, []);
 
-    // Broadcast online status if user already registered key
-    if (room.pubkeys.has(user)) {
-      broadcastToRoom(room, 'peer-joined', {
-        user,
-        pubKeyRawB64: room.pubkeys.get(user),
-        online: true,
-      }, user);
-    }
+    // Immediately push full room peers status to this client upon connection
+    const currentPeers = Array.from(getAllRoomUsers(room)).map((u) => ({
+      user: u,
+      pubKeyRawB64: room.pubkeys.get(u) || null,
+      online: room.clients.has(u) && room.clients.get(u).size > 0,
+    }));
+    sseWrite(res, 'peers-sync', { peers: currentPeers });
+
+    // Broadcast online status to others in room
+    broadcastToRoom(room, 'peer-joined', {
+      user,
+      pubKeyRawB64: room.pubkeys.get(user) || null,
+      online: true,
+    }, user);
 
     req.on('close', () => {
       clearInterval(ka);
@@ -224,8 +251,9 @@ const requestHandler = async (req, res) => {
       r.pubkeys.set(user, pubKeyRawB64);
       if (!r.queues.has(user)) r.queues.set(user, []);
 
-      // Notify others in the room
-      const evt = { event: 'peer-joined', data: { user, pubKeyRawB64, online: true } };
+      // Notify others in the room with public key and online status
+      const isOnline = r.clients.has(user) && r.clients.get(user).size > 0;
+      const evt = { event: 'peer-joined', data: { user, pubKeyRawB64, online: isOnline } };
       broadcastToRoom(r, evt.event, evt.data, user);
 
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -245,9 +273,10 @@ const requestHandler = async (req, res) => {
       return res.end('Missing room');
     }
     const r = getRoom(roomId);
-    const peers = Array.from(r.pubkeys.entries()).map(([u, pubKeyRawB64]) => ({
+    const allUsers = getAllRoomUsers(r);
+    const peers = Array.from(allUsers).map((u) => ({
       user: u,
-      pubKeyRawB64,
+      pubKeyRawB64: r.pubkeys.get(u) || null,
       online: r.clients.has(u) && r.clients.get(u).size > 0,
     }));
     res.setHeader('Content-Type', 'application/json');

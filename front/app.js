@@ -99,6 +99,11 @@ class Client {
     this.peers = new Map(); // username -> { user, pubKeyRawB64, online }
     this.es = null; // EventSource
     this.server = location.origin;
+    this.pubB64 = null;
+    this.lastHeartbeat = Date.now();
+    this.reconnectTimer = null;
+    this.syncInterval = null;
+    this.heartbeatWatchdog = null;
 
     this.messages = new Map(); // id -> { id, from, text, replyTo }
     this.replyingTo = null; // { id, from, text }
@@ -202,10 +207,14 @@ class Client {
 
   setupNotifications() {
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) this.clearNotifications();
+      if (!document.hidden) {
+        this.clearNotifications();
+        if (this.user && this.room) this.fetchPeers();
+      }
     });
     window.addEventListener('focus', () => {
       this.clearNotifications();
+      if (this.user && this.room) this.fetchPeers();
     });
   }
 
@@ -425,18 +434,17 @@ class Client {
       this.setStatus('Initialisation des clés…');
       const { keys, pubB64 } = await this.getOrCreateKeys(this.room, this.user);
       this.keys = keys;
+      this.pubB64 = pubB64;
 
       await this.openSSE();
 
       // Register public key
-      await fetch(`${this.server}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: this.room, user: this.user, pubKeyRawB64: pubB64 }),
-      });
+      await this.registerKey();
 
       // Fetch all peers in the room
       await this.fetchPeers();
+
+      this.startHeartbeatWatchdog();
 
       this.setStatus('Connecté');
       this.ui.input.disabled = false;
@@ -450,25 +458,115 @@ class Client {
     }
   }
 
+  async registerKey() {
+    if (!this.room || !this.user || !this.pubB64) return;
+    try {
+      await fetch(`${this.server}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: this.room, user: this.user, pubKeyRawB64: this.pubB64 }),
+      });
+    } catch (e) {
+      console.warn('Erreur register:', e);
+    }
+  }
+
   async openSSE() {
-    if (this.es) this.es.close();
+    if (this.es) {
+      try { this.es.close(); } catch (_) {}
+      this.es = null;
+    }
+    clearTimeout(this.reconnectTimer);
+
     const url = `${this.server}/events?room=${encodeURIComponent(this.room)}&user=${encodeURIComponent(this.user)}`;
     this.es = new EventSource(url);
+    this.lastHeartbeat = Date.now();
+
+    this.es.onopen = async () => {
+      this.setStatus('Connecté');
+      this.lastHeartbeat = Date.now();
+      // Ensure server has our public key (re-registration on reconnect / restart)
+      if (this.pubB64) {
+        await this.registerKey();
+      }
+      await this.fetchPeers();
+    };
+
+    this.es.addEventListener('ping', () => {
+      this.lastHeartbeat = Date.now();
+    });
+
+    this.es.addEventListener('peers-sync', (ev) => {
+      try {
+        const data = JSON.parse(ev.data);
+        if (Array.isArray(data.peers)) {
+          data.peers.forEach((p) => {
+            this.peers.set(p.user, p);
+            if (p.pubKeyRawB64) {
+              this.peerPubKeys.set(p.user, p.pubKeyRawB64);
+            }
+          });
+          this.renderPeers();
+        }
+      } catch (_) {}
+    });
 
     this.es.addEventListener('peer-joined', (ev) => {
-      const data = JSON.parse(ev.data);
-      this.onPeerJoined(data.user, data.pubKeyRawB64, data.online);
+      try {
+        const data = JSON.parse(ev.data);
+        this.onPeerJoined(data.user, data.pubKeyRawB64, data.online);
+      } catch (_) {}
     });
 
     this.es.addEventListener('peer-left', (ev) => {
-      const data = JSON.parse(ev.data);
-      this.onPeerLeft(data.user);
+      try {
+        const data = JSON.parse(ev.data);
+        this.onPeerLeft(data.user);
+      } catch (_) {}
     });
 
     this.es.addEventListener('message', (ev) => this.onCipherMessage(ev));
+
     this.es.onerror = (e) => {
       console.warn('SSE error', e);
+      if (this.es && this.es.readyState === EventSource.CONNECTING) {
+        this.setStatus('Reconnexion…');
+      } else if (this.es && this.es.readyState === EventSource.CLOSED) {
+        this.setStatus('Déconnecté - Reconnexion…');
+        this.scheduleReconnect();
+      }
     };
+  }
+
+  scheduleReconnect() {
+    clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => {
+      if (this.user && this.room) {
+        this.openSSE();
+      }
+    }, 2500);
+  }
+
+  startHeartbeatWatchdog() {
+    if (this.heartbeatWatchdog) clearInterval(this.heartbeatWatchdog);
+    if (this.syncInterval) clearInterval(this.syncInterval);
+
+    // Watchdog: If Zero Trust proxy silently broke connection without firing error
+    this.heartbeatWatchdog = setInterval(() => {
+      if (!this.user || !this.room) return;
+      if (Date.now() - this.lastHeartbeat > 35000) {
+        console.warn('Flux SSE inactif depuis >35s (perte Zero Trust). Reconnexion active…');
+        this.lastHeartbeat = Date.now();
+        this.openSSE();
+      }
+    }, 10000);
+
+    // Periodic sync: ensures peer online statuses stay perfectly updated even across network drops
+    this.syncInterval = setInterval(() => {
+      if (this.user && this.room && this.es && this.es.readyState === EventSource.OPEN) {
+        this.fetchPeers();
+      }
+    }, 10000);
   }
 
   async fetchPeers() {
@@ -476,7 +574,12 @@ class Client {
       const res = await fetch(`${this.server}/peers?room=${encodeURIComponent(this.room)}`);
       const json = await res.json();
       (json.peers || []).forEach((p) => {
-        this.peers.set(p.user, p);
+        const existing = this.peers.get(p.user) || {};
+        this.peers.set(p.user, {
+          user: p.user,
+          pubKeyRawB64: p.pubKeyRawB64 || existing.pubKeyRawB64 || null,
+          online: p.online !== false,
+        });
         if (p.pubKeyRawB64) {
           this.peerPubKeys.set(p.user, p.pubKeyRawB64);
         }
@@ -492,19 +595,20 @@ class Client {
   }
 
   onPeerJoined(user, pubKeyRawB64, online = true) {
-    const existing = this.peers.get(user);
-    const pubKeyChanged = existing && existing.pubKeyRawB64 !== pubKeyRawB64;
+    const existing = this.peers.get(user) || {};
+    const finalKey = pubKeyRawB64 || existing.pubKeyRawB64 || null;
+    const pubKeyChanged = existing.pubKeyRawB64 && finalKey && existing.pubKeyRawB64 !== finalKey;
 
-    this.peers.set(user, { user, pubKeyRawB64, online });
-    if (pubKeyRawB64) {
-      this.peerPubKeys.set(user, pubKeyRawB64);
+    this.peers.set(user, { user, pubKeyRawB64: finalKey, online: online !== false });
+    if (finalKey) {
+      this.peerPubKeys.set(user, finalKey);
       if (pubKeyChanged) {
         this.sharedKeys.delete(user);
       }
     }
     this.renderPeers();
 
-    if (user === this.peer) {
+    if (user === this.peer && finalKey) {
       this.getSharedKey(user);
     }
   }
@@ -519,22 +623,29 @@ class Client {
 
   renderPeers() {
     if (!this.ui.peersList) return;
-    const peerEntries = Array.from(this.peers.values()).filter((p) => p.user !== this.user);
-    if (this.ui.peersCount) this.ui.peersCount.textContent = peerEntries.length;
+    const allPeers = Array.from(this.peers.values()).filter((p) => p.user !== this.user);
+    allPeers.sort((a, b) => {
+      if (a.online === b.online) return a.user.localeCompare(b.user);
+      return a.online ? -1 : 1;
+    });
 
-    if (peerEntries.length === 0) {
+    const onlineCount = allPeers.filter((p) => p.online).length;
+    if (this.ui.peersCount) this.ui.peersCount.textContent = `${onlineCount}`;
+
+    if (allPeers.length === 0) {
       this.ui.peersList.innerHTML = '<div class="empty-peers">No peers connected</div>';
       return;
     }
 
     this.ui.peersList.innerHTML = '';
-    peerEntries.forEach((peer) => {
+    allPeers.forEach((peer) => {
       const item = document.createElement('div');
       item.className = 'peer-item' + (peer.user === this.peer ? ' active' : '');
       item.dataset.user = peer.user;
 
       const dot = document.createElement('span');
       dot.className = 'peer-dot' + (peer.online ? ' online' : '');
+      dot.title = peer.online ? 'En ligne' : 'Hors ligne';
 
       const name = document.createElement('span');
       name.className = 'peer-name';
