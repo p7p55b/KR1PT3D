@@ -149,6 +149,9 @@ function serveStatic(req, res) {
       : ext === '.json' ? 'application/json; charset=utf-8'
       : 'text/plain; charset=utf-8';
     res.setHeader('Content-Type', mime);
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.end(data);
   });
 }
