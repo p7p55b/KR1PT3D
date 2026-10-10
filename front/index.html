@@ -61,13 +61,14 @@ main {
 }
 
 .slctppl {
-    flex: 0 0 240px;
+    flex: 0 0 260px;
     border: 1px solid var(--lnclr);
     border-radius: 3px;
     padding: 12px;
     background-color: var(--pane-bg);
     display: flex;
     flex-direction: column;
+    gap: 12px;
 }
 
 .slctppl-title {
@@ -75,8 +76,65 @@ main {
     justify-content: space-between;
     align-items: center;
     border-bottom: 1px solid var(--lnclr);
-    padding-bottom: 8px;
-    margin-bottom: 8px;
+    padding-bottom: 6px;
+    margin-bottom: 6px;
+    font-size: 13px;
+}
+
+.dms-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.online-section {
+    display: flex;
+    flex-direction: column;
+}
+
+.search-box {
+    margin-bottom: 6px;
+}
+
+.search-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 5px 8px;
+    font-size: 12px;
+    background: var(--mid);
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    color: var(--fg);
+    outline: none;
+    transition: border-color .15s ease;
+}
+
+.search-input:focus {
+    border-color: var(--acc);
+}
+
+.search-input::placeholder {
+    color: var(--lnclr);
+    opacity: 0.6;
+}
+
+.dm-close-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--fg);
+    opacity: 0.45;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 4px;
+    border-radius: 2px;
+    line-height: 1;
+    transition: all .15s ease;
+}
+
+.dm-close-btn:hover {
+    opacity: 1;
+    background: rgba(239, 68, 68, 0.25);
+    color: #f87171;
 }
 
 .badge {
@@ -88,7 +146,8 @@ main {
 }
 
 .channel-section {
-    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
 }
 
 .slctppl-subtitle {
@@ -198,7 +257,7 @@ main {
     flex-direction: column;
     gap: 4px;
     overflow-y: auto;
-    max-height: 400px;
+    max-height: 180px;
 }
 
 .empty-peers {
@@ -722,12 +781,32 @@ if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
             </div>
         </div>
 
-        <div class="slctppl-title">
-            <strong>Messages privés</strong>
-            <span id="peers-count" class="badge">0</span>
+        <div class="dms-section">
+            <div class="slctppl-title">
+                <strong>Messages privés</strong>
+                <span id="dms-count" class="badge">0</span>
+            </div>
+            <div id="dms-list" class="peers-list">
+                <div class="empty-peers">Aucun message privé</div>
+            </div>
         </div>
-        <div id="peers-list" class="peers-list">
-            <div class="empty-peers">Aucun pair connecté</div>
+
+        <div class="online-section">
+            <div class="slctppl-title">
+                <strong>En ligne</strong>
+                <span id="peers-count" class="badge">0</span>
+            </div>
+            <div class="search-box">
+                <input
+                    type="text"
+                    id="search-user"
+                    class="search-input"
+                    placeholder="Rechercher pseudo..."
+                    autocomplete="off">
+            </div>
+            <div id="peers-list" class="peers-list">
+                <div class="empty-peers">Aucun pair en ligne</div>
+            </div>
         </div>
     </section>
 
@@ -819,7 +898,7 @@ if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
     Version : chargement...
 </div>
 
-<script src="app.js?v=0.3.1"></script>
+<script src="app.js?v=0.4.0"></script>
 
 <script>
 fetch("version.txt")

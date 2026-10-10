@@ -114,9 +114,11 @@ class Client {
     // Ephemeral in-RAM conversation management (Zero logs on disk or server)
     this.activeChat = 'general'; // 'general' or peer username (e.g. 'alice')
     this.conversations = new Map(); // chatId -> Array of message objects
+    this.openDMs = new Set(); // Set of peerUsernames with open DM threads
     this.unreadGeneral = 0;
     this.unreadDMs = new Map(); // peerUsername -> unread count
     this._roomKeys = new Map(); // roomId -> CryptoKey (AES-GCM 256 derived for general room chat)
+    this.searchQuery = '';
 
     this.ui = this.bindUI();
     this.setupNotifications();
@@ -142,6 +144,9 @@ class Client {
       activeChatTitle: document.getElementById('active-chat-title'),
       activeChatDesc: document.getElementById('active-chat-desc'),
       backToGeneralBtn: document.getElementById('back-to-general-btn'),
+      dmsList: document.getElementById('dms-list'),
+      dmsCount: document.getElementById('dms-count'),
+      searchUser: document.getElementById('search-user'),
       peersList: document.getElementById('peers-list'),
       peersCount: document.getElementById('peers-count'),
       stickerBtn: document.getElementById('sticker-btn'),
@@ -155,6 +160,18 @@ class Client {
     }
     if (ui.backToGeneralBtn) {
       ui.backToGeneralBtn.addEventListener('click', () => this.selectChat('general'));
+    }
+    if (ui.searchUser) {
+      ui.searchUser.addEventListener('input', () => {
+        this.searchQuery = ui.searchUser.value.trim().toLowerCase();
+        this.renderOnlinePeers();
+      });
+      ui.searchUser.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          this.onSearchSubmit();
+        }
+      });
     }
 
     ui.connect.addEventListener('click', () => {
@@ -416,6 +433,10 @@ class Client {
     }
     this.peer = (target === 'general') ? null : target;
 
+    if (target !== 'general') {
+      this.openDMs.add(target);
+    }
+
     // Reset unread count for opened conversation
     if (target === 'general') {
       this.unreadGeneral = 0;
@@ -433,6 +454,41 @@ class Client {
     }
     if (this.isConnected && this.ui.input) {
       this.ui.input.focus();
+    }
+  }
+
+  openAndSelectDM(peerUser) {
+    if (!peerUser || peerUser === this.user) return;
+    this.openDMs.add(peerUser);
+    this.selectChat(peerUser);
+  }
+
+  closeDM(peerUser, ev) {
+    if (ev) ev.stopPropagation();
+    this.openDMs.delete(peerUser);
+    if (this.activeChat === peerUser) {
+      this.selectChat('general');
+    } else {
+      this.renderDMsList();
+    }
+  }
+
+  onSearchSubmit() {
+    const q = this.searchQuery;
+    if (!q) return;
+
+    const peers = Array.from(this.peers.values()).filter((p) => p.online !== false && p.user !== this.user);
+    const exact = peers.find((p) => p.user.toLowerCase() === q);
+    const partial = peers.find((p) => p.user.toLowerCase().includes(q));
+    const target = exact || partial;
+
+    if (target) {
+      this.openAndSelectDM(target.user);
+      if (this.ui.searchUser) this.ui.searchUser.value = '';
+      this.searchQuery = '';
+      this.renderOnlinePeers();
+    } else {
+      this.logSystem('Système', `Aucun utilisateur en ligne correspondant à "${q}".`);
     }
   }
 
@@ -637,6 +693,9 @@ class Client {
     this.peerPubKeys.clear();
     this.sharedKeys.clear();
     this.conversations.clear();
+    this.openDMs.clear();
+    this.searchQuery = '';
+    if (this.ui.searchUser) this.ui.searchUser.value = '';
     this.unreadDMs.clear();
     this.unreadGeneral = 0;
     this.activeChat = 'general';
@@ -849,9 +908,12 @@ class Client {
   }
 
   renderPeers() {
-    if (!this.ui.peersList) return;
+    this.renderChannelGeneral();
+    this.renderDMsList();
+    this.renderOnlinePeers();
+  }
 
-    // Update general channel item active class and unread badge
+  renderChannelGeneral() {
     if (this.ui.channelGeneral) {
       const isGeneralActive = (this.activeChat === 'general');
       this.ui.channelGeneral.classList.toggle('active', isGeneralActive);
@@ -864,6 +926,76 @@ class Client {
         this.ui.generalUnread.style.display = 'none';
       }
     }
+  }
+
+  renderDMsList() {
+    if (!this.ui.dmsList) return;
+
+    if (!this.isConnected) {
+      this.ui.dmsList.innerHTML = '<div class="empty-peers">Non connecté au réseau</div>';
+      if (this.ui.dmsCount) this.ui.dmsCount.textContent = '0';
+      return;
+    }
+
+    const openList = Array.from(this.openDMs);
+    if (this.ui.dmsCount) this.ui.dmsCount.textContent = `${openList.length}`;
+
+    this.ui.dmsList.innerHTML = '';
+    if (openList.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-peers';
+      empty.textContent = 'Aucun message privé ouvert';
+      this.ui.dmsList.appendChild(empty);
+      return;
+    }
+
+    openList.forEach((dmUser) => {
+      const isSelected = dmUser === this.activeChat;
+      const isOnline = this.peers.has(dmUser) && this.peers.get(dmUser).online !== false;
+
+      const item = document.createElement('div');
+      item.className = 'peer-item' + (isSelected ? ' active' : '');
+      item.dataset.user = dmUser;
+      item.title = `Conversation privée avec ${dmUser}`;
+
+      const dot = document.createElement('span');
+      dot.className = 'peer-dot' + (isOnline ? ' online' : '');
+      dot.title = isOnline ? 'En ligne' : 'Hors ligne';
+
+      const name = document.createElement('span');
+      name.className = 'peer-name';
+      name.textContent = dmUser;
+
+      item.appendChild(dot);
+      item.appendChild(name);
+
+      const unreadCount = this.unreadDMs.get(dmUser) || 0;
+      if (unreadCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'badge unread-badge';
+        badge.textContent = String(unreadCount);
+        item.appendChild(badge);
+      }
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'dm-close-btn';
+      closeBtn.textContent = '✕';
+      closeBtn.title = 'Fermer cette conversation';
+      closeBtn.addEventListener('click', (e) => this.closeDM(dmUser, e));
+      item.appendChild(closeBtn);
+
+      item.addEventListener('click', (e) => {
+        if (e.target !== closeBtn) {
+          this.selectChat(dmUser);
+        }
+      });
+
+      this.ui.dmsList.appendChild(item);
+    });
+  }
+
+  renderOnlinePeers() {
+    if (!this.ui.peersList) return;
 
     if (!this.isConnected) {
       this.ui.peersList.innerHTML = '<div class="empty-peers">Non connecté au réseau</div>';
@@ -871,28 +1003,32 @@ class Client {
       return;
     }
 
-    // Peers array containing ONLY other online users
-    const peersArray = Array.from(this.peers.values()).filter((p) => p.online !== false && p.user !== this.user);
-    peersArray.sort((a, b) => a.user.localeCompare(b.user));
+    const allOnline = Array.from(this.peers.values()).filter((p) => p.online !== false && p.user !== this.user);
+    if (this.ui.peersCount) this.ui.peersCount.textContent = `${allOnline.length}`;
 
-    if (this.ui.peersCount) this.ui.peersCount.textContent = `${peersArray.length}`;
+    const q = this.searchQuery;
+    const filtered = q
+      ? allOnline.filter((p) => p.user.toLowerCase().includes(q))
+      : allOnline;
+
+    filtered.sort((a, b) => a.user.localeCompare(b.user));
 
     this.ui.peersList.innerHTML = '';
-    if (peersArray.length === 0) {
+    if (filtered.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-peers';
-      empty.textContent = 'Aucun pair en ligne';
+      empty.textContent = q ? 'Aucun utilisateur trouvé' : 'Aucun pair en ligne';
       this.ui.peersList.appendChild(empty);
       return;
     }
 
-    peersArray.forEach((peer) => {
+    filtered.forEach((peer) => {
       const isSelected = peer.user === this.activeChat;
 
       const item = document.createElement('div');
       item.className = 'peer-item' + (isSelected ? ' active' : '');
       item.dataset.user = peer.user;
-      item.title = `Ouvrir un DM privé avec ${peer.user}`;
+      item.title = `Démarrer un message privé avec ${peer.user}`;
 
       const dot = document.createElement('span');
       dot.className = 'peer-dot online';
@@ -905,16 +1041,8 @@ class Client {
       item.appendChild(dot);
       item.appendChild(name);
 
-      const unreadCount = this.unreadDMs.get(peer.user) || 0;
-      if (unreadCount > 0) {
-        const badge = document.createElement('span');
-        badge.className = 'badge unread-badge';
-        badge.textContent = String(unreadCount);
-        item.appendChild(badge);
-      }
-
       item.addEventListener('click', () => {
-        this.selectChat(peer.user);
+        this.openAndSelectDM(peer.user);
       });
 
       this.ui.peersList.appendChild(item);
@@ -1025,6 +1153,7 @@ class Client {
         decryptKey = await this.getRoomKey(this.room);
         convChatId = 'general';
       } else {
+        this.openDMs.add(msg.from);
         decryptKey = await this.getSharedKey(msg.from);
         convChatId = msg.from;
         if (!decryptKey) {
