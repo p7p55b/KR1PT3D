@@ -18,10 +18,8 @@ const STATIC_DIR = process.env.STATIC_DIR ||
     ? path.resolve(__dirname, '..', 'front')
     : path.resolve(__dirname, 'public'));
 
-// In-memory state: rooms -> { clients, pubkeys, queues }
-// clients: Map<user, res> (SSE connections)
-// pubkeys: Map<user, pubKeyRawB64>
-// queues: Map<user, Array<event>> (buffer for offline)
+// In-memory state: rooms -> { clients, pubkeys }
+// Live-only: zero offline retention. When tab closes, user is purged. When room is empty, room is deleted.
 const rooms = new Map();
 
 // Harden process against unexpected exits
@@ -37,10 +35,33 @@ function getRoom(roomId) {
     rooms.set(roomId, {
       clients: new Map(),
       pubkeys: new Map(),
-      queues: new Map(),
     });
   }
   return rooms.get(roomId);
+}
+
+function cleanupUser(roomId, user) {
+  if (!rooms.has(roomId)) return;
+  const room = rooms.get(roomId);
+
+  const clientSet = room.clients.get(user);
+  if (clientSet) {
+    for (const res of clientSet) {
+      try { res.end(); } catch (_) {}
+    }
+    room.clients.delete(user);
+  }
+
+  // Live only: immediately wipe user's public key from RAM
+  room.pubkeys.delete(user);
+
+  // Notify any other live peers in the room
+  broadcastToRoom(room, 'peer-left', { user }, user);
+
+  // If no one is left in the room, wipe the room completely from memory
+  if (room.clients.size === 0) {
+    rooms.delete(roomId);
+  }
 }
 
 let cachedVersion = null;
@@ -79,10 +100,9 @@ function sendToUser(room, user, event, data) {
     for (const res of clientSet) {
       sseWrite(res, event, data);
     }
-  } else {
-    if (!room.queues.has(user)) room.queues.set(user, []);
-    room.queues.get(user).push({ event, data });
+    return true;
   }
+  return false; // Live only: never store or queue offline messages
 }
 
 function broadcastToRoom(room, event, data, excludeUser) {
@@ -90,12 +110,6 @@ function broadcastToRoom(room, event, data, excludeUser) {
     if (u === excludeUser) continue;
     for (const res of clientSet) {
       sseWrite(res, event, data);
-    }
-  }
-  for (const [u] of room.queues.entries()) {
-    if (u === excludeUser) continue;
-    if (!room.clients.has(u) || room.clients.get(u).size === 0) {
-      room.queues.get(u).push({ event, data });
     }
   }
 }
@@ -106,10 +120,7 @@ function notFound(res) {
 }
 
 function getAllRoomUsers(room) {
-  const users = new Set();
-  for (const u of room.pubkeys.keys()) users.add(u);
-  for (const u of room.clients.keys()) users.add(u);
-  return users;
+  return new Set(room.clients.keys());
 }
 
 function parseBody(req) {
@@ -208,17 +219,17 @@ const requestHandler = async (req, res) => {
       } catch (_) {}
     }, 12000);
 
-    // Drain queued events if any
-    const q = room.queues.get(user) || [];
-    q.forEach(({ event, data }) => sseWrite(res, event, data));
-    room.queues.set(user, []);
-
-    // Immediately push full room peers status to this client upon connection
-    const currentPeers = Array.from(getAllRoomUsers(room)).map((u) => ({
-      user: u,
-      pubKeyRawB64: room.pubkeys.get(u) || null,
-      online: room.clients.has(u) && room.clients.get(u).size > 0,
-    }));
+    // Immediately push live room peers status to this client upon connection
+    const currentPeers = [];
+    for (const [u, clientSet] of room.clients.entries()) {
+      if (clientSet && clientSet.size > 0) {
+        currentPeers.push({
+          user: u,
+          pubKeyRawB64: room.pubkeys.get(u) || null,
+          online: true,
+        });
+      }
+    }
     sseWrite(res, 'peers-sync', { peers: currentPeers });
 
     // Broadcast online status to others in room
@@ -234,8 +245,7 @@ const requestHandler = async (req, res) => {
       if (set) {
         set.delete(res);
         if (set.size === 0) {
-          room.clients.delete(user);
-          broadcastToRoom(room, 'peer-left', { user, online: false }, user);
+          cleanupUser(roomId, user);
         }
       }
     });
@@ -252,12 +262,9 @@ const requestHandler = async (req, res) => {
       }
       const r = getRoom(room);
       r.pubkeys.set(user, pubKeyRawB64);
-      if (!r.queues.has(user)) r.queues.set(user, []);
 
       // Notify others in the room with public key and online status
-      const isOnline = r.clients.has(user) && r.clients.get(user).size > 0;
-      const evt = { event: 'peer-joined', data: { user, pubKeyRawB64, online: isOnline } };
-      broadcastToRoom(r, evt.event, evt.data, user);
+      broadcastToRoom(r, 'peer-joined', { user, pubKeyRawB64, online: true }, user);
 
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.end(JSON.stringify({ ok: true }));
@@ -273,15 +280,7 @@ const requestHandler = async (req, res) => {
     try {
       const { room, user } = await parseBody(req);
       if (room && user) {
-        const r = getRoom(room);
-        const set = r.clients.get(user);
-        if (set) {
-          for (const clientRes of set) {
-            try { clientRes.end(); } catch (_) {}
-          }
-          r.clients.delete(user);
-        }
-        broadcastToRoom(r, 'peer-left', { user, online: false }, user);
+        cleanupUser(room, user);
       }
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.end(JSON.stringify({ ok: true }));
@@ -299,15 +298,22 @@ const requestHandler = async (req, res) => {
       res.statusCode = 400;
       return res.end('Missing room');
     }
-    const r = getRoom(roomId);
-    const allUsers = getAllRoomUsers(r);
-    const peers = Array.from(allUsers).map((u) => ({
-      user: u,
-      pubKeyRawB64: r.pubkeys.get(u) || null,
-      online: r.clients.has(u) && r.clients.get(u).size > 0,
-    }));
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    if (!rooms.has(roomId)) {
+      return res.end(JSON.stringify({ peers: [] }));
+    }
+    const r = rooms.get(roomId);
+    const peers = [];
+    for (const [u, clientSet] of r.clients.entries()) {
+      if (clientSet && clientSet.size > 0) {
+        peers.push({
+          user: u,
+          pubKeyRawB64: r.pubkeys.get(u) || null,
+          online: true,
+        });
+      }
+    }
     return res.end(JSON.stringify({ peers }));
   }
 
@@ -319,12 +325,19 @@ const requestHandler = async (req, res) => {
         res.statusCode = 400;
         return res.end('Missing fields');
       }
-      const r = getRoom(room);
-      const messageEvt = { event: 'message', data: { from, to, payload } };
-
-      sendToUser(r, to, messageEvt.event, messageEvt.data);
+      if (!rooms.has(room)) {
+        res.statusCode = 404;
+        return res.end(JSON.stringify({ ok: false, error: 'Room not found' }));
+      }
+      const r = rooms.get(room);
+      const delivered = sendToUser(r, to, 'message', { from, to, payload });
 
       res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Content-Type', 'application/json');
+      if (!delivered) {
+        res.statusCode = 404;
+        return res.end(JSON.stringify({ ok: false, error: 'Recipient is offline' }));
+      }
       res.end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.statusCode = 500;

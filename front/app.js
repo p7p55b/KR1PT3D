@@ -144,11 +144,13 @@ class Client {
         this.connect();
       }
     });
-    window.addEventListener('beforeunload', () => {
+    const handleLeave = () => {
       if (this.isConnected) {
         this.disconnect(true);
       }
-    });
+    };
+    window.addEventListener('beforeunload', handleLeave);
+    window.addEventListener('pagehide', handleLeave);
     ui.send.addEventListener('click', () => this.onSend());
 
     // Multiline: Enter sends, Shift+Enter adds newline
@@ -571,8 +573,17 @@ class Client {
       try {
         const data = JSON.parse(ev.data);
         if (Array.isArray(data.peers)) {
+          const liveUsernames = new Set(data.peers.map((p) => p.user));
+          if (this.user) liveUsernames.add(this.user);
+          for (const u of Array.from(this.peers.keys())) {
+            if (!liveUsernames.has(u)) {
+              this.peers.delete(u);
+              this.peerPubKeys.delete(u);
+              this.sharedKeys.delete(u);
+            }
+          }
           data.peers.forEach((p) => {
-            this.peers.set(p.user, p);
+            this.peers.set(p.user, { user: p.user, pubKeyRawB64: p.pubKeyRawB64, online: true });
             if (p.pubKeyRawB64) {
               this.peerPubKeys.set(p.user, p.pubKeyRawB64);
             }
@@ -644,12 +655,20 @@ class Client {
     try {
       const res = await fetch(`${this.server}/peers?room=${encodeURIComponent(this.room)}`);
       const json = await res.json();
+      const liveUsernames = new Set((json.peers || []).map((p) => p.user));
+      if (this.user) liveUsernames.add(this.user);
+      for (const u of Array.from(this.peers.keys())) {
+        if (!liveUsernames.has(u)) {
+          this.peers.delete(u);
+          this.peerPubKeys.delete(u);
+          this.sharedKeys.delete(u);
+        }
+      }
       (json.peers || []).forEach((p) => {
-        const existing = this.peers.get(p.user) || {};
         this.peers.set(p.user, {
           user: p.user,
-          pubKeyRawB64: p.pubKeyRawB64 || existing.pubKeyRawB64 || null,
-          online: p.online !== false,
+          pubKeyRawB64: p.pubKeyRawB64 || null,
+          online: true,
         });
         if (p.pubKeyRawB64) {
           this.peerPubKeys.set(p.user, p.pubKeyRawB64);
@@ -666,11 +685,15 @@ class Client {
   }
 
   onPeerJoined(user, pubKeyRawB64, online = true) {
+    if (online === false) {
+      this.onPeerLeft(user);
+      return;
+    }
     const existing = this.peers.get(user) || {};
     const finalKey = pubKeyRawB64 || existing.pubKeyRawB64 || null;
     const pubKeyChanged = existing.pubKeyRawB64 && finalKey && existing.pubKeyRawB64 !== finalKey;
 
-    this.peers.set(user, { user, pubKeyRawB64: finalKey, online: online !== false });
+    this.peers.set(user, { user, pubKeyRawB64: finalKey, online: true });
     if (finalKey) {
       this.peerPubKeys.set(user, finalKey);
       if (pubKeyChanged) {
@@ -686,8 +709,12 @@ class Client {
 
   onPeerLeft(user) {
     if (this.peers.has(user)) {
-      const peer = this.peers.get(user);
-      peer.online = false;
+      this.peers.delete(user);
+      this.peerPubKeys.delete(user);
+      this.sharedKeys.delete(user);
+      if (this.peer === user) {
+        this.logSystem('Système', `${user} s'est déconnecté et a quitté le réseau.`);
+      }
       this.renderPeers();
     }
   }
@@ -710,7 +737,7 @@ class Client {
       }
     }
 
-    const peersArray = Array.from(this.peers.values());
+    const peersArray = Array.from(this.peers.values()).filter((p) => p.online !== false);
     peersArray.sort((a, b) => {
       // Current user is always first at the top
       if (a.user === this.user) return -1;
@@ -837,11 +864,21 @@ class Client {
     const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, te.encode(plain));
     const payload = { ivB64: toB64(iv), ctB64: toB64(ct) };
 
-    await fetch(`${this.server}/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ room: this.room, from: this.user, to: this.peer, payload }),
-    });
+    try {
+      const resp = await fetch(`${this.server}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: this.room, from: this.user, to: this.peer, payload }),
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || result.ok === false) {
+        this.logSystem('Erreur', result.error || 'Destinataire hors ligne, message non délivré.');
+        return;
+      }
+    } catch (e) {
+      this.logSystem('Erreur', 'Impossible de contacter le serveur.');
+      return;
+    }
 
     this.logMsg({ id, from: this.user, text, replyTo });
     this.cancelReply();
