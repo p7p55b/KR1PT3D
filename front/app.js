@@ -700,15 +700,15 @@ class Client {
         const data = JSON.parse(ev.data);
         if (Array.isArray(data.peers)) {
           const liveUsernames = new Set(data.peers.map((p) => p.user));
-          if (this.user) liveUsernames.add(this.user);
           for (const u of Array.from(this.peers.keys())) {
-            if (!liveUsernames.has(u)) {
+            if (!liveUsernames.has(u) || u === this.user) {
               this.peers.delete(u);
               this.peerPubKeys.delete(u);
               this.sharedKeys.delete(u);
             }
           }
           data.peers.forEach((p) => {
+            if (p.user === this.user) return;
             this.peers.set(p.user, { user: p.user, pubKeyRawB64: p.pubKeyRawB64, online: true });
             if (p.pubKeyRawB64) {
               this.peerPubKeys.set(p.user, p.pubKeyRawB64);
@@ -782,15 +782,15 @@ class Client {
       const res = await fetch(`${this.server}/peers?room=${encodeURIComponent(this.room)}`);
       const json = await res.json();
       const liveUsernames = new Set((json.peers || []).map((p) => p.user));
-      if (this.user) liveUsernames.add(this.user);
       for (const u of Array.from(this.peers.keys())) {
-        if (!liveUsernames.has(u)) {
+        if (!liveUsernames.has(u) || u === this.user) {
           this.peers.delete(u);
           this.peerPubKeys.delete(u);
           this.sharedKeys.delete(u);
         }
       }
       (json.peers || []).forEach((p) => {
+        if (p.user === this.user) return;
         this.peers.set(p.user, {
           user: p.user,
           pubKeyRawB64: p.pubKeyRawB64 || null,
@@ -811,6 +811,7 @@ class Client {
   }
 
   onPeerJoined(user, pubKeyRawB64, online = true) {
+    if (user === this.user) return;
     if (online === false) {
       this.onPeerLeft(user);
       return;
@@ -870,72 +871,51 @@ class Client {
       return;
     }
 
-    // Ensure self is in this.peers marked as online
-    if (this.user) {
-      if (!this.peers.has(this.user)) {
-        this.peers.set(this.user, { user: this.user, pubKeyRawB64: this.pubB64, online: true });
-      } else {
-        this.peers.get(this.user).online = true;
-      }
-    }
+    // Peers array containing ONLY other online users
+    const peersArray = Array.from(this.peers.values()).filter((p) => p.online !== false && p.user !== this.user);
+    peersArray.sort((a, b) => a.user.localeCompare(b.user));
 
-    const peersArray = Array.from(this.peers.values()).filter((p) => p.online !== false);
-    peersArray.sort((a, b) => {
-      // Current user is always first at the top
-      if (a.user === this.user) return -1;
-      if (b.user === this.user) return 1;
-      return a.user.localeCompare(b.user);
-    });
-
-    const otherPeersCount = peersArray.filter((p) => p.user !== this.user).length;
-    if (this.ui.peersCount) this.ui.peersCount.textContent = `${otherPeersCount}`;
+    if (this.ui.peersCount) this.ui.peersCount.textContent = `${peersArray.length}`;
 
     this.ui.peersList.innerHTML = '';
-    if (otherPeersCount === 0) {
+    if (peersArray.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-peers';
-      empty.textContent = 'Aucun autre pair en ligne';
+      empty.textContent = 'Aucun pair en ligne';
       this.ui.peersList.appendChild(empty);
+      return;
     }
 
     peersArray.forEach((peer) => {
-      const isMe = peer.user === this.user;
-      const isSelected = !isMe && peer.user === this.activeChat;
+      const isSelected = peer.user === this.activeChat;
 
       const item = document.createElement('div');
-      item.className = 'peer-item' + (isMe ? ' peer-me' : '') + (isSelected ? ' active' : '');
+      item.className = 'peer-item' + (isSelected ? ' active' : '');
       item.dataset.user = peer.user;
-      item.title = isMe ? 'Votre profil' : `Ouvrir un DM privé avec ${peer.user}`;
+      item.title = `Ouvrir un DM privé avec ${peer.user}`;
 
       const dot = document.createElement('span');
-      dot.className = 'peer-dot' + (peer.online ? ' online' : '');
-      dot.title = isMe ? 'Vous êtes en ligne' : 'En ligne';
+      dot.className = 'peer-dot online';
+      dot.title = 'En ligne';
 
       const name = document.createElement('span');
       name.className = 'peer-name';
-      name.textContent = isMe ? `${peer.user} (Vous)` : peer.user;
+      name.textContent = peer.user;
 
       item.appendChild(dot);
       item.appendChild(name);
 
-      if (isMe) {
+      const unreadCount = this.unreadDMs.get(peer.user) || 0;
+      if (unreadCount > 0) {
         const badge = document.createElement('span');
-        badge.className = 'me-badge';
-        badge.textContent = 'Moi';
+        badge.className = 'badge unread-badge';
+        badge.textContent = String(unreadCount);
         item.appendChild(badge);
-      } else {
-        const unreadCount = this.unreadDMs.get(peer.user) || 0;
-        if (unreadCount > 0) {
-          const badge = document.createElement('span');
-          badge.className = 'badge unread-badge';
-          badge.textContent = String(unreadCount);
-          item.appendChild(badge);
-        }
-
-        item.addEventListener('click', () => {
-          this.selectChat(peer.user);
-        });
       }
+
+      item.addEventListener('click', () => {
+        this.selectChat(peer.user);
+      });
 
       this.ui.peersList.appendChild(item);
     });
