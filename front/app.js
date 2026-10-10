@@ -1,6 +1,3 @@
-// Browser client for Node SSE E2EE relay
-// End-to-End Encryption with ECDH P-256 + AES-GCM 256
-
 const te = new TextEncoder();
 const td = new TextDecoder();
 
@@ -24,7 +21,6 @@ function randBytes(n) {
   return b;
 }
 
-// Inline reply-arrow icon
 const REPLY_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><polyline points="9 10 4 15 9 20"></polyline><path d="M4 15h11a4 4 0 0 0 0-8h-1"></path></svg>';
 
 function newId() {
@@ -42,49 +38,31 @@ function escapeHtml(s) {
   return div.innerHTML;
 }
 
-// Markdown parser with safe sanitization and media embedding
 function formatMarkdown(rawText) {
   let s = escapeHtml(rawText);
 
-  // 1. Code blocks ```code```
   s = s.replace(/```([\s\S]*?)```/g, (m, code) => `<pre class="md-pre"><code>${code.trim()}</code></pre>`);
-
-  // 2. Inline code `code`
   s = s.replace(/`([^`\n]+)`/g, '<code class="md-code">$1</code>');
-
-  // 3. Bold **text** or __text__
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
-
-  // 4. Italic *text* or _text_
   s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
   s = s.replace(/_([^_]+)_/g, '<em>$1</em>');
-
-  // 5. Strikethrough ~~text~~
   s = s.replace(/~~([^~]+)~~/g, '<del>$1</del>');
-
-  // 6. Blockquotes > quote
   s = s.replace(/^&gt;\s?(.*)$/gm, '<blockquote class="md-quote">$1</blockquote>');
-
-  // 7. Markdown links [text](https://...)
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer" class="md-link">$1</a>');
 
-  // 8. Privacy-preserving media embed: Click-to-load prevents IP address leaks to external hosts
   s = s.replace(/(https?:\/\/[^\s<]+?\.(?:gif|png|jpe?g|webp)(?:\?[^\s<]*)?)/gi, (url) => {
     return `<div class="chat-embed-blocked" data-src="${url}">` +
       `<span class="embed-warning">[ Media distant - Cliquer pour charger (expose votre IP à l'hôte) ]</span>` +
       `</div>`;
   });
 
-  // 9. Plain URL auto-linking
   s = s.replace(/(^|[\s(])(https?:\/\/[^\s<]+)/g, (m, pre, url) => {
     if (url.match(/\.(gif|png|jpe?g|webp)/i)) return m;
     return `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer" class="md-link">${url}</a>`;
   });
 
-  // 10. Preserved newlines
   s = s.replace(/\n/g, '<br>');
-
   return s;
 }
 
@@ -93,11 +71,11 @@ class Client {
     this.room = null;
     this.user = null;
     this.peer = null;
-    this.keys = null; // { publicKey, privateKey }
-    this.sharedKeys = new Map(); // peerUser -> CryptoKey
-    this.peerPubKeys = new Map(); // peerUser -> pubKeyRawB64
-    this.peers = new Map(); // username -> { user, pubKeyRawB64, online }
-    this.es = null; // EventSource
+    this.keys = null;
+    this.sharedKeys = new Map();
+    this.peerPubKeys = new Map();
+    this.peers = new Map();
+    this.es = null;
     this.server = location.origin;
     this.pubB64 = null;
     this.isConnected = false;
@@ -106,18 +84,17 @@ class Client {
     this.syncInterval = null;
     this.heartbeatWatchdog = null;
 
-    this.messages = new Map(); // id -> { id, from, text, replyTo }
-    this.replyingTo = null; // { id, from, text }
+    this.messages = new Map();
+    this.replyingTo = null;
     this.baseTitle = document.title;
     this.unreadCount = 0;
 
-    // Ephemeral in-RAM conversation management (Zero logs on disk or server)
-    this.activeChat = 'general'; // 'general' or peer username (e.g. 'alice')
-    this.conversations = new Map(); // chatId -> Array of message objects
-    this.openDMs = new Set(); // Set of peerUsernames with open DM threads
+    this.activeChat = 'general';
+    this.conversations = new Map();
+    this.openDMs = new Set();
     this.unreadGeneral = 0;
-    this.unreadDMs = new Map(); // peerUsername -> unread count
-    this._roomKeys = new Map(); // roomId -> CryptoKey (AES-GCM 256 derived for general room chat)
+    this.unreadDMs = new Map();
+    this._roomKeys = new Map();
     this.searchQuery = '';
 
     this.ui = this.bindUI();
@@ -190,7 +167,6 @@ class Client {
     window.addEventListener('pagehide', handleLeave);
     ui.send.addEventListener('click', () => this.onSend());
 
-    // Multiline: Enter sends, Shift+Enter adds newline
     ui.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -198,7 +174,6 @@ class Client {
       }
     });
 
-    // Auto-expand textarea
     ui.input.addEventListener('input', () => {
       ui.input.style.height = 'auto';
       ui.input.style.height = Math.min(ui.input.scrollHeight, 140) + 'px';
@@ -206,7 +181,6 @@ class Client {
 
     ui.replyCancel.addEventListener('click', () => this.cancelReply());
 
-    // Event delegation for reply button and click-to-load media
     ui.log.addEventListener('click', (e) => {
       const blocked = e.target.closest('.chat-embed-blocked');
       if (blocked && blocked.dataset.src) {
@@ -221,7 +195,6 @@ class Client {
       this.startReply(id);
     });
 
-    // Sticker and GIF panel toggles
     if (ui.stickerBtn && ui.stickerPanel) {
       ui.stickerBtn.addEventListener('click', () => this.toggleStickerPanel());
 
@@ -247,7 +220,6 @@ class Client {
       }
     }
 
-    // Auto-update peer when user edits peer input directly
     ui.peer.addEventListener('input', () => {
       this.peer = ui.peer.value.trim();
       this.renderPeers();
@@ -390,13 +362,11 @@ class Client {
     const list = this.getConversation(id);
     list.push(msg);
 
-    // If active conversation matches, display immediately in view
     if (this.activeChat === id) {
       const el = this.createMessageElement(msg);
       this.ui.log.appendChild(el);
       this.ui.log.scrollTop = this.ui.log.scrollHeight;
     } else {
-      // Background message: increment unread count for this tab
       if (id === 'general') {
         this.unreadGeneral++;
       } else {
@@ -437,7 +407,6 @@ class Client {
       this.openDMs.add(target);
     }
 
-    // Reset unread count for opened conversation
     if (target === 'general') {
       this.unreadGeneral = 0;
     } else {
@@ -535,14 +504,11 @@ class Client {
     this.ui.debug.textContent = JSON.stringify(obj, null, 2);
   }
 
-  // Ephemeral in-RAM keypair generation & RAM synchronization across tabs via BroadcastChannel (Zero disk traces)
   async getOrCreateKeys(room, user) {
-    // Purge any legacy localStorage traces
     try {
       Object.keys(localStorage).filter((k) => k.startsWith('kr1pt3d_')).forEach((k) => localStorage.removeItem(k));
     } catch (_) {}
 
-    // Check if another tab in this browser session already holds the key in RAM
     if (window.BroadcastChannel) {
       const channelName = `kr1pt3d_ephemeral_${encodeURIComponent(room)}`;
       const bc = new BroadcastChannel(channelName);
@@ -584,7 +550,6 @@ class Client {
       }
     }
 
-    // Fresh ephemeral generation in RAM
     const keys = await crypto.subtle.generateKey(
       { name: 'ECDH', namedCurve: 'P-256' },
       true,
@@ -663,7 +628,6 @@ class Client {
     const prevRoom = this.room;
     const prevUser = this.user;
 
-    // Inform server we are leaving
     if (prevRoom && prevUser) {
       try {
         const payload = JSON.stringify({ room: prevRoom, user: prevUser });
@@ -743,7 +707,6 @@ class Client {
     this.es.onopen = async () => {
       this.setStatus('Connecté');
       this.lastHeartbeat = Date.now();
-      // Ensure server has our public key (re-registration on reconnect / restart)
       if (this.pubB64) {
         await this.registerKey();
       }
@@ -818,7 +781,6 @@ class Client {
     if (this.heartbeatWatchdog) clearInterval(this.heartbeatWatchdog);
     if (this.syncInterval) clearInterval(this.syncInterval);
 
-    // Watchdog: If Zero Trust proxy silently broke connection without firing error
     this.heartbeatWatchdog = setInterval(() => {
       if (!this.user || !this.room) return;
       if (Date.now() - this.lastHeartbeat > 35000) {
@@ -828,7 +790,6 @@ class Client {
       }
     }, 10000);
 
-    // Periodic sync: ensures peer online statuses stay perfectly updated even across network drops
     this.syncInterval = setInterval(() => {
       if (this.user && this.room && this.es && this.es.readyState === EventSource.OPEN) {
         this.fetchPeers();

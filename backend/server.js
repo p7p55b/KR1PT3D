@@ -1,6 +1,3 @@
-// Minimal E2EE relay server using Node.js http + SSE (no deps)
-// Serves static client and relays encrypted payloads between users in rooms.
-
 const http = require('http');
 const https = require('https');
 const url = require('url');
@@ -18,11 +15,8 @@ const STATIC_DIR = process.env.STATIC_DIR ||
     ? path.resolve(__dirname, '..', 'front')
     : path.resolve(__dirname, 'public'));
 
-// In-memory state: rooms -> { clients, pubkeys }
-// Live-only: zero offline retention. When tab closes, user is purged. When room is empty, room is deleted.
 const rooms = new Map();
 
-// Harden process against unexpected exits
 process.on('uncaughtException', (err) => {
   console.error('[uncaughtException]', err && err.stack ? err.stack : err);
 });
@@ -52,13 +46,9 @@ function cleanupUser(roomId, user) {
     room.clients.delete(user);
   }
 
-  // Live only: immediately wipe user's public key from RAM
   room.pubkeys.delete(user);
-
-  // Notify any other live peers in the room
   broadcastToRoom(room, 'peer-left', { user }, user);
 
-  // If no one is left in the room, wipe the room completely from memory
   if (room.clients.size === 0) {
     rooms.delete(roomId);
   }
@@ -89,9 +79,7 @@ function sseWrite(res, event, data) {
   try {
     res.write(`event: ${event}\n`);
     res.write(`data: ${JSON.stringify(data)}\n\n`);
-  } catch (_) {
-    // Ignore write errors on closed sockets
-  }
+  } catch (_) {}
 }
 
 function sendToUser(room, user, event, data) {
@@ -102,7 +90,7 @@ function sendToUser(room, user, event, data) {
     }
     return true;
   }
-  return false; // Live only: never store or queue offline messages
+  return false;
 }
 
 function broadcastToRoom(room, event, data, excludeUser) {
@@ -171,12 +159,10 @@ const requestHandler = async (req, res) => {
   const { pathname, query } = url.parse(req.url, true);
   console.log(`${new Date().toISOString()} ${pathname}`);
 
-  // Anti-fingerprinting and security headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
 
-  // SSE stream: /events?room=...&user=...
   if (req.method === 'GET' && pathname === '/events') {
     const roomId = query.room || 'default';
     const user = query.user;
@@ -186,13 +172,11 @@ const requestHandler = async (req, res) => {
     }
     const room = getRoom(roomId);
 
-    // Disable socket idle timeout and enable TCP keepalive for long-lived reverse-proxy connections
     if (req.socket) {
       req.socket.setKeepAlive(true, 10000);
       req.socket.setTimeout(0);
     }
 
-    // Setup SSE with anti-buffering headers (Cloudflare Zero Trust / NGINX / reverse proxies)
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
@@ -201,7 +185,6 @@ const requestHandler = async (req, res) => {
       'Access-Control-Allow-Origin': '*',
     });
 
-    // 2KB padding comment to immediately flush Cloudflare / reverse proxy buffers
     res.write(':' + ' '.repeat(2048) + '\n\n');
     res.write('retry: 3000\n\n');
     res.write(': connected\n\n');
@@ -211,7 +194,6 @@ const requestHandler = async (req, res) => {
     }
     room.clients.get(user).add(res);
 
-    // Keepalive ping every 12s to prevent Cloudflare Zero Trust / reverse proxy timeouts
     const ka = setInterval(() => {
       try {
         res.write(': keepalive\n\n');
@@ -219,7 +201,6 @@ const requestHandler = async (req, res) => {
       } catch (_) {}
     }, 12000);
 
-    // Immediately push live room peers status to this client upon connection
     const currentPeers = [];
     for (const [u, clientSet] of room.clients.entries()) {
       if (clientSet && clientSet.size > 0) {
@@ -232,7 +213,6 @@ const requestHandler = async (req, res) => {
     }
     sseWrite(res, 'peers-sync', { peers: currentPeers });
 
-    // Broadcast online status to others in room
     broadcastToRoom(room, 'peer-joined', {
       user,
       pubKeyRawB64: room.pubkeys.get(user) || null,
@@ -249,10 +229,9 @@ const requestHandler = async (req, res) => {
         }
       }
     });
-    return; // Keep open
+    return;
   }
 
-  // Register or update public key: POST /register { room, user, pubKeyRawB64 }
   if (req.method === 'POST' && pathname === '/register') {
     try {
       const { room, user, pubKeyRawB64 } = await parseBody(req);
@@ -263,7 +242,6 @@ const requestHandler = async (req, res) => {
       const r = getRoom(room);
       r.pubkeys.set(user, pubKeyRawB64);
 
-      // Notify others in the room with public key and online status
       broadcastToRoom(r, 'peer-joined', { user, pubKeyRawB64, online: true }, user);
 
       res.setHeader('Access-Control-Allow-Origin', '*');
@@ -275,7 +253,6 @@ const requestHandler = async (req, res) => {
     return;
   }
 
-  // Leave room: POST /leave { room, user }
   if (req.method === 'POST' && pathname === '/leave') {
     try {
       const { room, user } = await parseBody(req);
@@ -291,7 +268,6 @@ const requestHandler = async (req, res) => {
     return;
   }
 
-  // Get peers: GET /peers?room=...
   if (req.method === 'GET' && pathname === '/peers') {
     const roomId = query.room;
     if (!roomId) {
@@ -317,7 +293,6 @@ const requestHandler = async (req, res) => {
     return res.end(JSON.stringify({ peers }));
   }
 
-  // Send encrypted message: POST /send { room, from, to, payload: { ivB64, ctB64 } }
   if (req.method === 'POST' && pathname === '/send') {
     try {
       const { room, from, to, payload } = await parseBody(req);
@@ -334,12 +309,10 @@ const requestHandler = async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
 
       if (to === 'all' || to === '*') {
-        // Broadcast to all other users in the room (general chat)
         broadcastToRoom(r, 'message', { from, to: 'all', payload }, from);
         return res.end(JSON.stringify({ ok: true }));
       }
 
-      // Direct Message (DM) to a specific user
       const delivered = sendToUser(r, to, 'message', { from, to, payload });
       if (!delivered) {
         res.statusCode = 404;
@@ -353,7 +326,6 @@ const requestHandler = async (req, res) => {
     return;
   }
 
-  // CORS preflight for POST endpoints
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin': '*',
@@ -363,7 +335,6 @@ const requestHandler = async (req, res) => {
     return res.end();
   }
 
-  // Static files (client)
   return serveStatic(req, res);
 };
 
@@ -389,11 +360,9 @@ try {
     server = http.createServer(requestHandler);
   }
 } catch (e) {
-  // Fallback to HTTP if reading TLS files fails
   server = http.createServer(requestHandler);
 }
 
-// Avoid process exit on client parser errors or server errors
 server.on('clientError', (err, socket) => {
   try { socket.end('HTTP/1.1 400 Bad Request\r\n\r\n'); } catch {}
 });
