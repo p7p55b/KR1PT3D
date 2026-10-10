@@ -111,6 +111,13 @@ class Client {
     this.baseTitle = document.title;
     this.unreadCount = 0;
 
+    // Ephemeral in-RAM conversation management (Zero logs on disk or server)
+    this.activeChat = 'general'; // 'general' or peer username (e.g. 'alice')
+    this.conversations = new Map(); // chatId -> Array of message objects
+    this.unreadGeneral = 0;
+    this.unreadDMs = new Map(); // peerUsername -> unread count
+    this._roomKeys = new Map(); // roomId -> CryptoKey (AES-GCM 256 derived for general room chat)
+
     this.ui = this.bindUI();
     this.setupNotifications();
   }
@@ -129,6 +136,12 @@ class Client {
       replyPreview: document.getElementById('reply-preview'),
       replyPreviewText: document.getElementById('reply-preview-text'),
       replyCancel: document.getElementById('reply-cancel'),
+      channelGeneral: document.getElementById('channel-general'),
+      generalUnread: document.getElementById('general-unread'),
+      activeChatIcon: document.getElementById('active-chat-icon'),
+      activeChatTitle: document.getElementById('active-chat-title'),
+      activeChatDesc: document.getElementById('active-chat-desc'),
+      backToGeneralBtn: document.getElementById('back-to-general-btn'),
       peersList: document.getElementById('peers-list'),
       peersCount: document.getElementById('peers-count'),
       stickerBtn: document.getElementById('sticker-btn'),
@@ -136,6 +149,13 @@ class Client {
       gifUrlInput: document.getElementById('gif-url-input'),
       gifInsertBtn: document.getElementById('gif-insert-btn'),
     };
+
+    if (ui.channelGeneral) {
+      ui.channelGeneral.addEventListener('click', () => this.selectChat('general'));
+    }
+    if (ui.backToGeneralBtn) {
+      ui.backToGeneralBtn.addEventListener('click', () => this.selectChat('general'));
+    }
 
     ui.connect.addEventListener('click', () => {
       if (this.isConnected) {
@@ -283,9 +303,15 @@ class Client {
     this.ui.replyPreview.style.display = 'none';
   }
 
-  logMsg(msg) {
-    this.messages.set(msg.id, msg);
+  getConversation(chatId) {
+    const id = chatId || 'general';
+    if (!this.conversations.has(id)) {
+      this.conversations.set(id, []);
+    }
+    return this.conversations.get(id);
+  }
 
+  createMessageElement(msg) {
     const el = document.createElement('div');
     el.className = 'msg';
     el.dataset.id = msg.id;
@@ -338,16 +364,115 @@ class Client {
       el.appendChild(btn);
     }
 
-    this.ui.log.appendChild(el);
-    this.ui.log.scrollTop = this.ui.log.scrollHeight;
+    return el;
+  }
 
-    if (!isSystemMessage && msg.from !== this.user) {
+  logMsg(chatId, msg) {
+    const id = chatId || 'general';
+    this.messages.set(msg.id, msg);
+    const list = this.getConversation(id);
+    list.push(msg);
+
+    // If active conversation matches, display immediately in view
+    if (this.activeChat === id) {
+      const el = this.createMessageElement(msg);
+      this.ui.log.appendChild(el);
+      this.ui.log.scrollTop = this.ui.log.scrollHeight;
+    } else {
+      // Background message: increment unread count for this tab
+      if (id === 'general') {
+        this.unreadGeneral++;
+      } else {
+        const count = this.unreadDMs.get(id) || 0;
+        this.unreadDMs.set(id, count + 1);
+      }
+      this.renderPeers();
+    }
+
+    if (!msg.isSystem && msg.from !== this.user && msg.from !== 'Système' && msg.from !== 'Erreur') {
       this.notifyUnread();
     }
   }
 
+  renderCurrentMessages() {
+    this.ui.log.innerHTML = '';
+    const list = this.getConversation(this.activeChat);
+    list.forEach((msg) => {
+      const el = this.createMessageElement(msg);
+      this.ui.log.appendChild(el);
+    });
+    this.ui.log.scrollTop = this.ui.log.scrollHeight;
+  }
+
   logSystem(from, text) {
-    this.logMsg({ id: newId(), from, text, replyTo: null });
+    this.logMsg(this.activeChat, { id: newId(), from, text, replyTo: null, isSystem: true });
+  }
+
+  async selectChat(chatId) {
+    const target = chatId || 'general';
+    this.activeChat = target;
+    if (this.ui.peer) {
+      this.ui.peer.value = (target === 'general') ? '' : target;
+    }
+    this.peer = (target === 'general') ? null : target;
+
+    // Reset unread count for opened conversation
+    if (target === 'general') {
+      this.unreadGeneral = 0;
+    } else {
+      this.unreadDMs.delete(target);
+    }
+
+    this.cancelReply();
+    this.renderActiveChatHeader();
+    this.renderPeers();
+    this.renderCurrentMessages();
+
+    if (target !== 'general') {
+      await this.getSharedKey(target);
+    }
+    if (this.isConnected && this.ui.input) {
+      this.ui.input.focus();
+    }
+  }
+
+  renderActiveChatHeader() {
+    if (!this.ui.activeChatTitle) return;
+    if (this.activeChat === 'general') {
+      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '💬';
+      this.ui.activeChatTitle.textContent = 'Salon Général';
+      if (this.ui.activeChatDesc) {
+        this.ui.activeChatDesc.textContent = `Discussion publique de la room "${this.room || 'demo-room'}"`;
+      }
+      if (this.ui.backToGeneralBtn) this.ui.backToGeneralBtn.style.display = 'none';
+      if (this.ui.input) this.ui.input.placeholder = 'Message dans #général (Shift+Enter pour saut de ligne)…';
+    } else {
+      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '🔒';
+      this.ui.activeChatTitle.textContent = `Message Privé : ${this.activeChat}`;
+      if (this.ui.activeChatDesc) {
+        this.ui.activeChatDesc.textContent = `Chiffré E2EE direct (uniquement vous et ${this.activeChat})`;
+      }
+      if (this.ui.backToGeneralBtn) this.ui.backToGeneralBtn.style.display = 'inline-block';
+      if (this.ui.input) this.ui.input.placeholder = `Message privé à ${this.activeChat}…`;
+    }
+  }
+
+  async getRoomKey(roomId) {
+    const id = roomId || 'default';
+    if (this._roomKeys.has(id)) {
+      return this._roomKeys.get(id);
+    }
+    const raw = te.encode(`kr1pt3d:room-general:${id}`);
+    const hash = await crypto.subtle.digest('SHA-256', raw);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      hash,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+    this._roomKeys.set(id, key);
+    return key;
   }
 
   debug(obj) {
@@ -440,7 +565,6 @@ class Client {
 
       this.room = this.ui.room.value.trim() || 'demo-room';
       this.user = this.ui.user.value.trim();
-      this.peer = this.ui.peer.value.trim();
 
       if (!this.user) throw new Error("Veuillez renseigner un nom d'utilisateur (Username)");
 
@@ -467,13 +591,9 @@ class Client {
       if (this.ui.stickerBtn) this.ui.stickerBtn.disabled = false;
 
       this.setStatus('En ligne');
-      this.renderPeers();
+      await this.selectChat('general');
 
-      this.logSystem('Système', `Connecté au réseau en tant que "${this.user}" dans la room "${this.room}". Vous êtes désormais visible.`);
-
-      if (this.peer && this.peer !== this.user) {
-        this.getSharedKey(this.peer);
-      }
+      this.logSystem('Système', `Connecté en tant que "${this.user}" dans la room "${this.room}". Bienvenue dans le Salon Général !`);
     } catch (e) {
       console.error(e);
       this.isConnected = false;
@@ -516,6 +636,10 @@ class Client {
     this.peers.clear();
     this.peerPubKeys.clear();
     this.sharedKeys.clear();
+    this.conversations.clear();
+    this.unreadDMs.clear();
+    this.unreadGeneral = 0;
+    this.activeChat = 'general';
 
     if (!isUnloading) {
       this.ui.connect.disabled = false;
@@ -526,6 +650,8 @@ class Client {
       this.ui.send.disabled = true;
       if (this.ui.stickerBtn) this.ui.stickerBtn.disabled = true;
       this.setStatus('Offline');
+      this.renderActiveChatHeader();
+      this.renderCurrentMessages();
       this.renderPeers();
       this.logSystem('Système', 'Vous vous êtes déconnecté du réseau.');
     }
@@ -712,7 +838,9 @@ class Client {
       this.peers.delete(user);
       this.peerPubKeys.delete(user);
       this.sharedKeys.delete(user);
-      if (this.peer === user) {
+      this.unreadDMs.delete(user);
+
+      if (this.activeChat === user) {
         this.logSystem('Système', `${user} s'est déconnecté et a quitté le réseau.`);
       }
       this.renderPeers();
@@ -721,6 +849,20 @@ class Client {
 
   renderPeers() {
     if (!this.ui.peersList) return;
+
+    // Update general channel item active class and unread badge
+    if (this.ui.channelGeneral) {
+      const isGeneralActive = (this.activeChat === 'general');
+      this.ui.channelGeneral.classList.toggle('active', isGeneralActive);
+    }
+    if (this.ui.generalUnread) {
+      if (this.unreadGeneral > 0) {
+        this.ui.generalUnread.textContent = String(this.unreadGeneral);
+        this.ui.generalUnread.style.display = 'inline-block';
+      } else {
+        this.ui.generalUnread.style.display = 'none';
+      }
+    }
 
     if (!this.isConnected) {
       this.ui.peersList.innerHTML = '<div class="empty-peers">Non connecté au réseau</div>';
@@ -742,26 +884,32 @@ class Client {
       // Current user is always first at the top
       if (a.user === this.user) return -1;
       if (b.user === this.user) return 1;
-      // Then online users
-      if (a.online !== b.online) return a.online ? -1 : 1;
       return a.user.localeCompare(b.user);
     });
 
-    const onlineCount = peersArray.filter((p) => p.online).length;
-    if (this.ui.peersCount) this.ui.peersCount.textContent = `${onlineCount}`;
+    const otherPeersCount = peersArray.filter((p) => p.user !== this.user).length;
+    if (this.ui.peersCount) this.ui.peersCount.textContent = `${otherPeersCount}`;
 
     this.ui.peersList.innerHTML = '';
+    if (otherPeersCount === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-peers';
+      empty.textContent = 'Aucun autre pair en ligne';
+      this.ui.peersList.appendChild(empty);
+    }
+
     peersArray.forEach((peer) => {
       const isMe = peer.user === this.user;
-      const isSelected = !isMe && peer.user === this.peer;
+      const isSelected = !isMe && peer.user === this.activeChat;
 
       const item = document.createElement('div');
       item.className = 'peer-item' + (isMe ? ' peer-me' : '') + (isSelected ? ' active' : '');
       item.dataset.user = peer.user;
+      item.title = isMe ? 'Votre profil' : `Ouvrir un DM privé avec ${peer.user}`;
 
       const dot = document.createElement('span');
       dot.className = 'peer-dot' + (peer.online ? ' online' : '');
-      dot.title = isMe ? 'Vous êtes en ligne' : (peer.online ? 'En ligne' : 'Hors ligne');
+      dot.title = isMe ? 'Vous êtes en ligne' : 'En ligne';
 
       const name = document.createElement('span');
       name.className = 'peer-name';
@@ -776,27 +924,21 @@ class Client {
         badge.textContent = 'Moi';
         item.appendChild(badge);
       } else {
+        const unreadCount = this.unreadDMs.get(peer.user) || 0;
+        if (unreadCount > 0) {
+          const badge = document.createElement('span');
+          badge.className = 'badge unread-badge';
+          badge.textContent = String(unreadCount);
+          item.appendChild(badge);
+        }
+
         item.addEventListener('click', () => {
-          this.selectPeer(peer.user);
+          this.selectChat(peer.user);
         });
       }
 
       this.ui.peersList.appendChild(item);
     });
-  }
-
-  async selectPeer(peerUser) {
-    this.peer = peerUser;
-    this.ui.peer.value = peerUser;
-    this.renderPeers();
-    this.logSystem('Système', `Sélection du pair : ${peerUser}.`);
-    const key = await this.getSharedKey(peerUser);
-    if (key) {
-      this.logSystem('Système', `Clé de session prête avec ${peerUser}.`);
-    } else {
-      this.logSystem('Système', `En attente de la clé publique de ${peerUser}…`);
-    }
-    this.ui.input.focus();
   }
 
   async getSharedKey(peerUser) {
@@ -839,18 +981,23 @@ class Client {
     const text = this.ui.input.value.trim();
     if (!text) return;
 
-    if (!this.peer) {
-      this.peer = this.ui.peer.value.trim();
-      if (!this.peer) {
-        this.logSystem('Système', 'Veuillez renseigner ou sélectionner un correspondant (Peer).');
-        return;
-      }
+    const isGeneral = (this.activeChat === 'general');
+    const targetRecipient = isGeneral ? 'all' : this.activeChat;
+
+    if (!isGeneral && !targetRecipient) {
+      this.logSystem('Système', 'Veuillez sélectionner un correspondant (DM) ou revenir au Salon Général.');
+      return;
     }
 
-    const sharedKey = await this.getSharedKey(this.peer);
-    if (!sharedKey) {
-      this.logSystem('Système', `En attente de la clé partagée avec ${this.peer}…`);
-      return;
+    let encryptionKey;
+    if (isGeneral) {
+      encryptionKey = await this.getRoomKey(this.room);
+    } else {
+      encryptionKey = await this.getSharedKey(targetRecipient);
+      if (!encryptionKey) {
+        this.logSystem('Système', `En attente de la clé de session avec ${targetRecipient}…`);
+        return;
+      }
     }
 
     this.ui.input.value = '';
@@ -858,17 +1005,17 @@ class Client {
 
     const id = newId();
     const replyTo = this.replyingTo;
-    const plain = JSON.stringify({ id, text, replyTo });
+    const plain = JSON.stringify({ id, text, replyTo, target: targetRecipient });
 
     const iv = randBytes(12);
-    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, te.encode(plain));
+    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, encryptionKey, te.encode(plain));
     const payload = { ivB64: toB64(iv), ctB64: toB64(ct) };
 
     try {
       const resp = await fetch(`${this.server}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ room: this.room, from: this.user, to: this.peer, payload }),
+        body: JSON.stringify({ room: this.room, from: this.user, to: targetRecipient, payload }),
       });
       const result = await resp.json().catch(() => ({}));
       if (!resp.ok || result.ok === false) {
@@ -880,24 +1027,39 @@ class Client {
       return;
     }
 
-    this.logMsg({ id, from: this.user, text, replyTo });
+    this.logMsg(this.activeChat, { id, from: this.user, text, replyTo });
     this.cancelReply();
   }
 
   async onCipherMessage(ev) {
     try {
       const msg = JSON.parse(ev.data);
-      if (msg.to !== this.user) return;
+      const isGeneral = (msg.to === 'all');
 
-      const sharedKey = await this.getSharedKey(msg.from);
-      if (!sharedKey) {
-        this.logSystem('Erreur', `Clé introuvable pour déchiffrer le message de ${msg.from}.`);
-        return;
+      if (!isGeneral && msg.to !== this.user) return;
+      if (msg.from === this.user) return;
+
+      let decryptKey;
+      let convChatId;
+      if (isGeneral) {
+        decryptKey = await this.getRoomKey(this.room);
+        convChatId = 'general';
+      } else {
+        decryptKey = await this.getSharedKey(msg.from);
+        convChatId = msg.from;
+        if (!decryptKey) {
+          this.logMsg(convChatId, {
+            id: newId(),
+            from: 'Erreur',
+            text: `Clé introuvable pour déchiffrer le message privé de ${msg.from}.`,
+          });
+          return;
+        }
       }
 
       const iv = new Uint8Array(fromB64(msg.payload.ivB64));
       const ct = fromB64(msg.payload.ctB64);
-      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, sharedKey, ct);
+      const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, decryptKey, ct);
       const raw = td.decode(pt);
 
       let id, text, replyTo;
@@ -912,7 +1074,7 @@ class Client {
         replyTo = null;
       }
 
-      this.logMsg({ id, from: msg.from, text, replyTo });
+      this.logMsg(convChatId, { id, from: msg.from, text, replyTo });
     } catch (e) {
       console.warn('Erreur déchiffrement message:', e);
       this.logSystem('Erreur', 'Impossible de déchiffrer un message.');

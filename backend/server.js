@@ -330,15 +330,22 @@ const requestHandler = async (req, res) => {
         return res.end(JSON.stringify({ ok: false, error: 'Room not found' }));
       }
       const r = rooms.get(room);
-      const delivered = sendToUser(r, to, 'message', { from, to, payload });
-
       res.setHeader('Access-Control-Allow-Origin', '*');
       res.setHeader('Content-Type', 'application/json');
+
+      if (to === 'all' || to === '*') {
+        // Broadcast to all other users in the room (general chat)
+        broadcastToRoom(r, 'message', { from, to: 'all', payload }, from);
+        return res.end(JSON.stringify({ ok: true }));
+      }
+
+      // Direct Message (DM) to a specific user
+      const delivered = sendToUser(r, to, 'message', { from, to, payload });
       if (!delivered) {
         res.statusCode = 404;
         return res.end(JSON.stringify({ ok: false, error: 'Recipient is offline' }));
       }
-      res.end(JSON.stringify({ ok: true }));
+      return res.end(JSON.stringify({ ok: true }));
     } catch (e) {
       res.statusCode = 500;
       res.end('Error');

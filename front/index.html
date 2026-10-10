@@ -87,6 +87,112 @@ main {
     font-size: 11px;
 }
 
+.channel-section {
+    margin-bottom: 12px;
+}
+
+.slctppl-subtitle {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.7;
+    margin-bottom: 6px;
+    font-weight: 600;
+}
+
+.channel-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    cursor: pointer;
+    background-color: var(--mid);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.channel-item:hover {
+    background-color: rgba(22, 35, 38, 0.85);
+    border-color: var(--acc);
+}
+
+.channel-item.active {
+    background-color: var(--acc);
+    color: var(--mid);
+    border-color: var(--fg);
+    font-weight: 700;
+}
+
+.channel-icon {
+    font-size: 14px;
+}
+
+.channel-name {
+    flex: 1;
+}
+
+.unread-badge {
+    background: #ef4444;
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.3);
+    margin-left: auto;
+}
+
+.chat-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--mid);
+    border: 1px solid var(--lnclr);
+    border-radius: 3px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+}
+
+.active-chat-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.active-chat-icon {
+    font-size: 18px;
+}
+
+.active-chat-titles {
+    display: flex;
+    flex-direction: column;
+}
+
+.active-chat-desc {
+    font-size: 11px;
+    opacity: 0.7;
+}
+
+.back-to-general-btn {
+    background: transparent;
+    border: 1px solid var(--lnclr);
+    color: var(--fg);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: all .15s ease;
+}
+
+.back-to-general-btn:hover {
+    background: var(--acc);
+    color: var(--mid);
+    border-color: var(--fg);
+}
+
 .peers-list {
     display: flex;
     flex-direction: column;
@@ -608,12 +714,21 @@ if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
 <main>
 
     <section class="slctppl" id="peer-list-section">
+        <div class="channel-section">
+            <div class="slctppl-subtitle">Salon public</div>
+            <div id="channel-general" class="channel-item active" title="Chat public de la room">
+                <span class="channel-icon">💬</span>
+                <span class="channel-name">Salon Général</span>
+                <span id="general-unread" class="badge unread-badge" style="display: none;">0</span>
+            </div>
+        </div>
+
         <div class="slctppl-title">
-            <strong>Online peers</strong>
+            <strong>Messages privés</strong>
             <span id="peers-count" class="badge">0</span>
         </div>
         <div id="peers-list" class="peers-list">
-            <div class="empty-peers">No peers connected</div>
+            <div class="empty-peers">Aucun pair connecté</div>
         </div>
     </section>
 
@@ -643,13 +758,18 @@ if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
             <div class="status" id="status">Offline</div>
         </div>
 
-        <div class="row" id="peer-row">
-            <label for="peer">Chat with :</label>
-            <input
-                id="peer"
-                type="text"
-                autocomplete="off"
-                placeholder="Select from list or type peer username">
+        <div class="row chat-header-row" id="chat-header-row">
+            <div class="active-chat-info">
+                <span id="active-chat-icon" class="active-chat-icon">💬</span>
+                <div class="active-chat-titles">
+                    <strong id="active-chat-title">Salon Général</strong>
+                    <span id="active-chat-desc" class="active-chat-desc">Discussion publique (chiffrée par room)</span>
+                </div>
+            </div>
+            <button type="button" id="back-to-general-btn" class="back-to-general-btn" style="display: none;">
+                ← Revenir au Salon Général
+            </button>
+            <input id="peer" type="hidden" value="">
         </div>
 
         <div class="msgs" id="log"></div>
@@ -700,7 +820,7 @@ if (!window.isSecureContext || !window.crypto || !window.crypto.subtle) {
     Version : chargement...
 </div>
 
-<script src="app.js?v=0.2.1"></script>
+<script src="app.js?v=0.3.0"></script>
 
 <script>
 fetch("version.txt")
