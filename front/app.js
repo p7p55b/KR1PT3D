@@ -439,7 +439,7 @@ class Client {
   renderActiveChatHeader() {
     if (!this.ui.activeChatTitle) return;
     if (this.activeChat === 'general') {
-      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '💬';
+      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '';
       this.ui.activeChatTitle.textContent = 'Salon Général';
       if (this.ui.activeChatDesc) {
         this.ui.activeChatDesc.textContent = `Discussion publique de la room "${this.room || 'demo-room'}"`;
@@ -447,7 +447,7 @@ class Client {
       if (this.ui.backToGeneralBtn) this.ui.backToGeneralBtn.style.display = 'none';
       if (this.ui.input) this.ui.input.placeholder = 'Message dans #général (Shift+Enter pour saut de ligne)…';
     } else {
-      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '🔒';
+      if (this.ui.activeChatIcon) this.ui.activeChatIcon.textContent = '';
       this.ui.activeChatTitle.textContent = `Message Privé : ${this.activeChat}`;
       if (this.ui.activeChatDesc) {
         this.ui.activeChatDesc.textContent = `Chiffré E2EE direct (uniquement vous et ${this.activeChat})`;
